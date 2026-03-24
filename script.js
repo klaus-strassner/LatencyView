@@ -33,6 +33,12 @@ document.addEventListener('DOMContentLoaded', () => {
         sortDirToggle: document.getElementById('sortDirToggle')
     };
 
+    const metricHierarchy = ['fps', 'lows', 'tot', 'peri', 'disp', 'cpu', 'rnd'];
+
+    function getOptimalSortDir(metric) {
+        return (metric === 'fps' || metric === 'lows') ? 'desc' : 'asc';
+    }
+
     // --- Custom Dropdown Controller ---
     dom.csDisp.addEventListener('click', () => {
         if (!dom.csWrap.classList.contains('disabled')) dom.csWrap.classList.toggle('open');
@@ -89,6 +95,21 @@ document.addEventListener('DOMContentLoaded', () => {
             dom.csDisp.textContent = "COMPARING SESSIONS";
             dom.timespanGroup.style.display = 'none';
             dom.sortGroup.style.display = 'block'; 
+
+            let targetMetric = 'ts';
+            for (const m of metricHierarchy) {
+                if (state.visibility[m]) {
+                    targetMetric = m;
+                    break;
+                }
+            }
+
+            state.sort.metric = targetMetric;
+            state.sort.dir = getOptimalSortDir(targetMetric);
+
+            dom.sortSelect.value = state.sort.metric;
+            dom.sortDirToggle.textContent = state.sort.dir === 'asc' ? 'ASCENDING' : 'DESCENDING';
+
         } else {
             state.viewMode = 'single';
             dom.compareBtn.classList.remove('active');
@@ -102,7 +123,28 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     dom.sortSelect.addEventListener('change', (e) => {
-        state.sort.metric = e.target.value;
+        const newMetric = e.target.value;
+        state.sort.metric = newMetric;
+        state.sort.dir = getOptimalSortDir(newMetric);
+        dom.sortDirToggle.textContent = state.sort.dir === 'asc' ? 'ASCENDING' : 'DESCENDING';
+
+        if (newMetric !== 'ts') {
+            const activeMetrics = Object.keys(state.visibility).filter(key => state.visibility[key]);
+
+            if (activeMetrics.length === 1 && activeMetrics[0] !== newMetric) {
+                const oldMetric = activeMetrics[0];
+                state.visibility[oldMetric] = false;
+                const oldRow = document.querySelector(`.metric-row[data-metric="${oldMetric}"]`);
+                if (oldRow) oldRow.classList.add('disabled');
+            }
+
+            if (!state.visibility[newMetric]) {
+                state.visibility[newMetric] = true;
+                const newRow = document.querySelector(`.metric-row[data-metric="${newMetric}"]`);
+                if (newRow) newRow.classList.remove('disabled');
+            }
+        }
+
         renderChart();
     });
 
@@ -177,6 +219,13 @@ document.addEventListener('DOMContentLoaded', () => {
         return left[col] + (right[col] - left[col]) * ((time - left[timeCol]) / (right[timeCol] - left[timeCol]));
     }
 
+    function getAverage(arr) {
+        if (!arr || !arr.length) return null;
+        let sum = 0;
+        for(let i=0; i<arr.length; i++) sum += arr[i];
+        return sum / arr.length;
+    }
+
     // --- Core Logic ---
     async function handleFiles(files) {
         const list = Array.from(files).filter(f => f.name.endsWith('.csv'));
@@ -243,10 +292,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function renderCompareChart() {
         const rawKeys = Object.keys(state.pairedSessions);
-        
+        const globalVals = { fps: [], lows: [], rnd: [], cpu: [], disp: [], peri: [], tot: [] };
+
         let sessionData = rawKeys.map(ts => {
             const session = state.pairedSessions[ts];
             const lData = session.cleanLat, pData = session.perf.data;
+            const tL = session.lat.cols[0], tP = session.perf.cols[0];
             const colFPS = session.perf.cols.find(c => c.toLowerCase().includes('fps')),
                   colLow = session.perf.cols.find(c => c.toLowerCase().includes('1(%) low')),
                   colRnd = session.perf.cols.find(c => c.toLowerCase().includes('render latency')),
@@ -256,15 +307,24 @@ document.addEventListener('DOMContentLoaded', () => {
             const colMouse = session.lat.cols.find(c => c.toLowerCase().includes('mouse'));
             
             let sumFPS = 0, sumLow = 0, sumRnd = 0, sumPC = 0;
-            pData.forEach(r => { sumFPS += r[colFPS] || 0; sumLow += r[colLow] || 0; sumRnd += r[colRnd] || 0; sumPC += r[colPC] || 0; });
+            pData.forEach(r => { 
+                const fps = r[colFPS] || 0, low = r[colLow] || 0, rnd = r[colRnd] || 0, pc = r[colPC] || 0;
+                sumFPS += fps; sumLow += low; sumRnd += rnd; sumPC += pc; 
+                globalVals.fps.push(fps); globalVals.lows.push(low); globalVals.rnd.push(rnd); globalVals.cpu.push(pc - rnd);
+            });
             const avgFPS = sumFPS / pData.length, avgLow = sumLow / pData.length, avgRnd = sumRnd / pData.length, avgPC = sumPC / pData.length;
 
             let sumPCD = 0, sumTot = 0;
             const mBase = parseFloat(dom.mouseInput.value) || 0;
             lData.forEach(r => {
-                sumPCD += r[colPCD] || 0;
+                const pcd = r[colPCD] || 0;
+                sumPCD += pcd;
                 const isRealMouse = (colSys && r[colSys] && r[colMouse] > 0);
-                sumTot += isRealMouse ? r[colSys] : (r[colPCD] + mBase + (mBase * r._jitter));
+                const tot = isRealMouse ? r[colSys] : (pcd + mBase + (mBase * r._jitter));
+                sumTot += tot;
+
+                const pcLat = getInterpolatedValue(pData, r[tL], colPC, tP) || 0;
+                globalVals.disp.push(pcd - pcLat); globalVals.peri.push(tot - pcd); globalVals.tot.push(tot);
             });
             const avgPCD = sumPCD / lData.length, avgTot = sumTot / lData.length;
 
@@ -272,9 +332,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         sessionData.sort((a, b) => {
-            let valA = a[state.sort.metric];
-            let valB = b[state.sort.metric];
-
+            let valA = a[state.sort.metric]; let valB = b[state.sort.metric];
             if (state.sort.metric === 'ts') {
                 if (valA < valB) return state.sort.dir === 'asc' ? -1 : 1;
                 if (valA > valB) return state.sort.dir === 'asc' ? 1 : -1;
@@ -296,12 +354,30 @@ document.addEventListener('DOMContentLoaded', () => {
             return s;
         });
 
+        // --- Dynamic Max Width Calculator (Clean Grid Snapping) ---
+        let maxFPS = 0;
+        let maxLat = 0;
+
+        avgData.forEach((d, i) => {
+            if (state.visibility.fps && d.fps > maxFPS) maxFPS = d.fps;
+            if (state.visibility.lows && d.lows > maxFPS) maxFPS = d.lows;
+
+            let latStack = state.visibility.tot ? d.tot : activeLatSums[i];
+            if (latStack > maxLat) maxLat = latStack;
+        });
+
+        // Snap directly to next natural interval (50 for FPS, 5 for Latency)
+        const fM = maxFPS > 0 ? Math.ceil(maxFPS / 50) * 50 : parseFloat(dom.fpsInput.value);
+        const lM = maxLat > 0 ? Math.ceil(maxLat / 5) * 5 : parseFloat(dom.latInput.value);
+
         const datasets = [];
         const pushBar = (id, label, stack, xAxisID, border, bg, dataOverride = null) => {
-            if (!state.visibility[id]) return;
             datasets.push({
                 id: id, 
-                _isToggled: true, label: label, data: dataOverride || avgData.map(d => d[id]), 
+                _isToggled: state.visibility[id], 
+                hidden: !state.visibility[id],
+                label: label, 
+                data: dataOverride || avgData.map(d => d[id]), 
                 backgroundColor: bg, borderColor: border, borderWidth: 1,
                 stack: stack, xAxisID: xAxisID, barPercentage: 0.5, categoryPercentage: 0.8
             });
@@ -311,21 +387,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
         pushBar('fps', 'AVERAGE FPS', 'fps', 'xTop', '#10b981', 'rgba(16, 185, 129, 0.15)');
         pushBar('lows', '1% LOW FPS', 'lows', 'xTop', '#059669', 'rgba(5, 150, 105, 0.15)');
-
         pushBar('rnd', 'RENDER LATENCY', 'lat', 'xBottom', '#52525b', 'rgba(82, 82, 91, 0.15)');
         pushBar('cpu', 'COMPUTE LATENCY', 'lat', 'xBottom', '#71717a', 'rgba(113, 113, 122, 0.15)');
         pushBar('disp', 'DISPLAY LATENCY', 'lat', 'xBottom', '#a1a1aa', 'rgba(161, 161, 170, 0.15)');
         pushBar('peri', 'PERIPHERAL LATENCY', 'lat', 'xBottom', '#d4d4d8', 'rgba(212, 212, 216, 0.15)');
 
-        if (state.visibility.tot) {
-            const totData = avgData.map((d, i) => hasSubLats ? Math.max(0, d.tot - activeLatSums[i]) : d.tot);
-            const totBg = hasSubLats ? 'transparent' : 'rgba(255, 255, 255, 0.15)';
-            pushBar('tot', 'TOTAL LATENCY', 'lat', 'xBottom', '#ffffff', totBg, totData);
-        }
+        const totData = avgData.map((d, i) => hasSubLats ? Math.max(0, d.tot - activeLatSums[i]) : d.tot);
+        const totBg = hasSubLats ? 'transparent' : 'rgba(255, 255, 255, 0.15)';
+        pushBar('tot', 'TOTAL LATENCY', 'lat', 'xBottom', '#ffffff', totBg, totData);
 
         const ctx = document.getElementById('myChart').getContext('2d');
         if (state.chart) state.chart.destroy();
-        const fM = parseFloat(dom.fpsInput.value), lM = parseFloat(dom.latInput.value);
 
         const inlineDataLabels = {
             id: 'inlineDataLabels',
@@ -339,21 +411,33 @@ document.addEventListener('DOMContentLoaded', () => {
                 const latStackEdges = new Array(chart.data.labels.length).fill(0);
                 const latStackYs = new Array(chart.data.labels.length).fill(0);
 
+                const activeStacks = {};
+                chart.data.datasets.forEach(ds => {
+                    if (!ds.hidden) activeStacks[ds.stack] = (activeStacks[ds.stack] || 0) + 1;
+                });
+
                 chart.data.datasets.forEach((dataset, i) => {
                     const meta = chart.getDatasetMeta(i);
                     if (!meta.hidden && dataset._isToggled) {
                         const isLatStack = dataset.stack === 'lat';
                         const isTot = dataset.id === 'tot';
+                        const isSoloStack = activeStacks[dataset.stack] === 1;
 
                         meta.data.forEach((el, index) => {
                             const val = dataset.data[index];
                             if (val !== null && val > 0) {
-                                
-                                // Because the bars are now dark/translucent, text returns to pure white.
-                                if (!(isTot && hasSubLats) && el.width && el.width > 24) {
-                                    ctx.fillStyle = '#ffffff'; 
-                                    ctx.textAlign = 'right';
-                                    ctx.fillText(fmt(val), el.x - 8, el.y); 
+                                const isRemainderShell = isTot && hasSubLats;
+
+                                if (!isRemainderShell) {
+                                    if (el.width && el.width > 24) {
+                                        ctx.fillStyle = '#ffffff'; 
+                                        ctx.textAlign = 'right';
+                                        ctx.fillText(fmt(val), el.x - 8, el.y); 
+                                    } else if (isSoloStack) {
+                                        ctx.fillStyle = '#ffffff'; 
+                                        ctx.textAlign = 'left';
+                                        ctx.fillText(fmt(val), el.x + 8, el.y); 
+                                    }
                                 }
                                 
                                 if (isLatStack) {
@@ -366,7 +450,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 });
 
-                if (hasSubLats) {
+                if (activeStacks['lat'] > 1) {
                     ctx.fillStyle = '#ffffff';
                     ctx.textAlign = 'left';
                     latStackEdges.forEach((edgeX, index) => {
@@ -375,7 +459,6 @@ document.addEventListener('DOMContentLoaded', () => {
                         }
                     });
                 }
-
                 ctx.restore();
             }
         };
@@ -388,12 +471,33 @@ document.addEventListener('DOMContentLoaded', () => {
                 interaction: { mode: 'y', intersect: false },
                 layout: { padding: { left: 50, right: 50, top: 50, bottom: 20 } },
                 plugins: { 
-                    legend: { display: true, position: 'top', align: 'center', labels: { color: '#a1a1aa', font: { family: "'JetBrains Mono'", size: 10, weight: '400' }, boxWidth: 10, padding: 35 } },
+                    legend: { 
+                        display: true, position: 'top', align: 'center', 
+                        labels: { 
+                            color: '#a1a1aa', font: { family: "'JetBrains Mono'", size: 10, weight: '400' }, boxWidth: 10, padding: 35,
+                            generateLabels: (chart) => {
+                                const active = chart.data.datasets.map((ds, i) => ({ ds, i })).filter(item => item.ds._isToggled);
+                                
+                                if (active.length === 0) return [{ text: '', fillStyle: 'transparent', strokeStyle: 'transparent', lineWidth: 0, boxWidth: 0, hidden: false, fontColor: 'transparent' }];
+                                
+                                return active.map(item => ({
+                                    text: item.ds.label,
+                                    fontColor: '#a1a1aa',
+                                    fillStyle: item.ds.backgroundColor !== 'transparent' ? item.ds.backgroundColor : item.ds.borderColor,
+                                    strokeStyle: item.ds.borderColor,
+                                    lineWidth: item.ds.borderWidth || 1,
+                                    borderRadius: 0,
+                                    hidden: false,
+                                    datasetIndex: item.i
+                                }));
+                            }
+                        },
+                        onClick: null 
+                    },
                     tooltip: { 
                         backgroundColor: '#0a0a0c', titleFont: { family: "'JetBrains Mono'", size: 11, weight: '500' }, 
                         bodyFont: { family: "'JetBrains Mono'", size: 10, weight: '400' }, titleColor: '#ffffff', 
-                        bodyColor: '#a1a1aa', cornerRadius: 0, borderColor: '#27272a', borderWidth: 1, padding: 16, 
-                        boxPadding: 6, 
+                        bodyColor: '#a1a1aa', cornerRadius: 0, borderColor: '#27272a', borderWidth: 1, padding: 16, boxPadding: 6, 
                         callbacks: { 
                             label: c => {
                                 if (c.dataset.id === 'tot') return `${c.dataset.label}: ${fmt(avgData[c.dataIndex].tot)}`;
@@ -411,13 +515,31 @@ document.addEventListener('DOMContentLoaded', () => {
             plugins: [inlineDataLabels]
         });
 
-        // Blank out single-session metrics
-        ['fps', 'lows', 'tot', 'peri', 'disp', 'cpu', 'rnd'].forEach(id => {
-            ['min', 'avg', 'max'].forEach(t => {
-                const el = document.getElementById(`${t}-${id}`);
-                if(el) el.textContent = "-";
-            });
-        });
+        const updateSidebarMetrics = (id, arr) => {
+            const els = ['min', 'avg', 'max'].map(t => document.getElementById(`${t}-${id}`));
+            if (!arr || !arr.length) { 
+                els.forEach(el => { if (el) el.textContent = "-"; }); 
+                return; 
+            }
+            let min = Infinity, max = -Infinity, sum = 0;
+            for(let i=0; i<arr.length; i++) {
+                let v = arr[i];
+                if(v < min) min = v;
+                if(v > max) max = v;
+                sum += v;
+            }
+            if(els[0]) els[0].textContent = fmt(min);
+            if(els[1]) els[1].textContent = fmt(sum/arr.length);
+            if(els[2]) els[2].textContent = fmt(max);
+        };
+
+        updateSidebarMetrics('fps', globalVals.fps);
+        updateSidebarMetrics('lows', globalVals.lows);
+        updateSidebarMetrics('rnd', globalVals.rnd);
+        updateSidebarMetrics('cpu', globalVals.cpu);
+        updateSidebarMetrics('disp', globalVals.disp);
+        updateSidebarMetrics('peri', globalVals.peri);
+        updateSidebarMetrics('tot', globalVals.tot);
     }
 
     function renderSingleChart() {
@@ -468,49 +590,46 @@ document.addEventListener('DOMContentLoaded', () => {
             valTot.push({ x: r[tL], y: isRealMouse ? r[colSys] : (r[colPCD] + mBase + (mBase * r._jitter)) });
         });
 
-        const datasets = [];
+        const arrFPS = activeFPS.map(d=>d.y);
+        const arrLow = activeLow.map(d=>d.y);
+        const arrRnd = activeRnd.map(d=>d.y);
+        const arrCpu = activePC.map((d,i)=>d.y - (activeRnd[i]?activeRnd[i].y:0));
+        const arrDisp = valPCD.map(d=>d.y - getInterpolatedValue(pData, d.x, colPC, tP));
+        const arrPeri = valTot.map((d,i)=>d.y - (valPCD[i]?valPCD[i].y:0));
+        const arrTot = valTot.map(d=>d.y);
 
-        if (state.visibility.fps) datasets.push({ _isToggled: true, label: "AVERAGE FPS", data: activeFPS, yAxisID: 'yL', borderColor: '#10b981', borderWidth: 1, pointRadius: 0, tension: 0 });
-        if (state.visibility.lows) datasets.push({ _isToggled: true, label: "1% LOW FPS", data: activeLow, yAxisID: 'yL', borderColor: '#059669', borderWidth: 1, pointRadius: 0, tension: 0 });
+        const datasets = [];
+        const pushLine = (id, label, avg, data, color, bg, fillMode) => {
+            datasets.push({
+                _isToggled: state.visibility[id], 
+                hidden: !state.visibility[id], 
+                label: label, 
+                _avgVal: avg, 
+                data: data, 
+                yAxisID: (id === 'fps' || id === 'lows') ? 'yL' : 'yR',
+                borderColor: state.visibility[id] ? color : (fillMode !== false && state.visibility[id] ? 'transparent' : 'rgba(255,255,255,0.15)'), 
+                backgroundColor: state.visibility[id] ? bg : 'transparent', 
+                fill: fillMode, borderWidth: 1, pointRadius: 0, tension: 0
+            });
+        };
+
+        pushLine('fps', 'AVERAGE FPS', getAverage(arrFPS), activeFPS, '#10b981', 'transparent', false);
+        pushLine('lows', '1% LOW FPS', getAverage(arrLow), activeLow, '#059669', 'transparent', false);
 
         const activeLatencyLayers = [
-            { id: 'rnd', label: "RENDER LATENCY", data: activeRnd, color: '#52525b', bg: 'rgba(82, 82, 91, 0.15)' },
-            { id: 'cpu', label: "COMPUTE LATENCY", data: activePC, color: '#71717a', bg: 'rgba(113, 113, 122, 0.15)' },
-            { id: 'disp', label: "DISPLAY LATENCY", data: valPCD, color: '#a1a1aa', bg: 'rgba(161, 161, 170, 0.15)' },
-            { id: 'peri', label: "PERIPHERAL LATENCY", data: valTot, color: '#d4d4d8', bg: 'rgba(212, 212, 216, 0.15)' }
+            { id: 'rnd', label: "RENDER LATENCY", avg: getAverage(arrRnd), data: activeRnd, color: '#52525b', bg: 'rgba(82, 82, 91, 0.15)' },
+            { id: 'cpu', label: "COMPUTE LATENCY", avg: getAverage(arrCpu), data: activePC, color: '#71717a', bg: 'rgba(113, 113, 122, 0.15)' },
+            { id: 'disp', label: "DISPLAY LATENCY", avg: getAverage(arrDisp), data: valPCD, color: '#a1a1aa', bg: 'rgba(161, 161, 170, 0.15)' },
+            { id: 'peri', label: "PERIPHERAL LATENCY", avg: getAverage(arrPeri), data: valTot, color: '#d4d4d8', bg: 'rgba(212, 212, 216, 0.15)' }
         ];
 
         let prevIdx = 'origin';
-        activeLatencyLayers.forEach((layer, index) => {
-            const isVis = state.visibility[layer.id];
-            const nextLayer = activeLatencyLayers[index + 1];
-            const isNextVis = nextLayer ? state.visibility[nextLayer.id] : false;
-            const isNakedFloor = !isVis && isNextVis;
-            let strokeColor = 'transparent';
-            if (isVis) strokeColor = layer.color;
-            else if (isNakedFloor) strokeColor = 'rgba(255, 255, 255, 0.15)';
-
-            datasets.push({
-                _isToggled: isVis, label: layer.label, data: layer.data, yAxisID: 'yR',
-                borderColor: strokeColor, backgroundColor: isVis ? layer.bg : 'transparent', fill: prevIdx, borderWidth: 1, pointRadius: 0, tension: 0
-            });
+        activeLatencyLayers.forEach(layer => {
+            pushLine(layer.id, layer.label, layer.avg, layer.data, layer.color, layer.bg, prevIdx);
             prevIdx = datasets.length - 1;
         });
 
-        if (state.visibility.tot) datasets.push({ _isToggled: true, label: "TOTAL LATENCY", data: valTot, yAxisID: 'yR', borderColor: '#ffffff', borderWidth: 1, pointRadius: 0, fill: false, tension: 0 }); 
-
-        const updateSidebarMetrics = (id, arr) => {
-            const els = ['min', 'avg', 'max'].map(t => document.getElementById(`${t}-${id}`));
-            if (!arr.length) { els.forEach(el => el.textContent = "-"); return; }
-            els[0].textContent = fmt(Math.min(...arr));
-            els[1].textContent = fmt(arr.reduce((a,b)=>a+b,0)/arr.length);
-            els[2].textContent = fmt(Math.max(...arr));
-        };
-
-        updateSidebarMetrics('fps', activeFPS.map(d=>d.y)); updateSidebarMetrics('lows', activeLow.map(d=>d.y));
-        updateSidebarMetrics('rnd', activeRnd.map(d=>d.y)); updateSidebarMetrics('cpu', activePC.map((d,i)=>d.y - (activeRnd[i]?activeRnd[i].y:0)));
-        updateSidebarMetrics('disp', valPCD.map(d=>d.y - getInterpolatedValue(pData, d.x, colPC, tP)));
-        updateSidebarMetrics('peri', valTot.map((d,i)=>d.y - (valPCD[i]?valPCD[i].y:0))); updateSidebarMetrics('tot', valTot.map(d=>d.y));
+        pushLine('tot', 'TOTAL LATENCY', getAverage(arrTot), valTot, '#ffffff', 'transparent', false);
 
         const ctx = document.getElementById('myChart').getContext('2d');
         if (state.chart) state.chart.destroy();
@@ -522,8 +641,42 @@ document.addEventListener('DOMContentLoaded', () => {
                 devicePixelRatio: Math.max(window.devicePixelRatio || 1, 4), responsive: true, maintainAspectRatio: false, animation: false, interaction: { mode: 'index', intersect: false },
                 layout: { padding: { left: 50, right: 50, top: 50, bottom: 20 } },
                 plugins: { 
-                    legend: { display: true, position: 'top', align: 'center', labels: { color: '#a1a1aa', font: { family: "'JetBrains Mono'", size: 10, weight: '400' }, boxWidth: 10, padding: 35, filter: (item, chart) => chart.datasets[item.datasetIndex]._isToggled } },
-                    tooltip: { backgroundColor: '#0a0a0c', titleFont: { family: "'JetBrains Mono'", size: 11, weight: '500' }, bodyFont: { family: "'JetBrains Mono'", size: 10, weight: '400' }, titleColor: '#ffffff', bodyColor: '#a1a1aa', cornerRadius: 0, borderColor: '#27272a', borderWidth: 1, padding: 16, boxPadding: 6, itemSort: (a, b) => b.raw.y - a.raw.y, filter: (item) => item.dataset._isToggled, callbacks: { label: c => `${c.dataset.label}: ${fmt(c.raw.y)}` } } 
+                    legend: { 
+                        display: true, position: 'top', align: 'center', 
+                        labels: { 
+                            color: '#a1a1aa', font: { family: "'JetBrains Mono'", size: 10, weight: '400' }, boxWidth: 10, padding: 35,
+                            generateLabels: (chart) => {
+                                const active = chart.data.datasets.map((ds, i) => ({ ds, i })).filter(item => item.ds._isToggled);
+                                
+                                if (active.length === 0) return [{ text: '', fillStyle: 'transparent', strokeStyle: 'transparent', lineWidth: 0, boxWidth: 0, hidden: false, fontColor: 'transparent' }];
+                                
+                                return active.map(item => {
+                                    const ds = item.ds;
+                                    let text = ds.label;
+                                    if (ds._avgVal !== undefined && ds._avgVal !== null) {
+                                        text += `: ${fmt(ds._avgVal)}`;
+                                    }
+                                    return {
+                                        text: text,
+                                        fontColor: '#a1a1aa',
+                                        fillStyle: ds.backgroundColor !== 'transparent' ? ds.backgroundColor : ds.borderColor,
+                                        strokeStyle: ds.borderColor,
+                                        lineWidth: ds.borderWidth || 1,
+                                        borderRadius: 0,
+                                        hidden: false,
+                                        datasetIndex: item.i
+                                    };
+                                });
+                            }
+                        },
+                        onClick: null 
+                    },
+                    tooltip: { 
+                        backgroundColor: '#0a0a0c', titleFont: { family: "'JetBrains Mono'", size: 11, weight: '500' }, bodyFont: { family: "'JetBrains Mono'", size: 10, weight: '400' }, titleColor: '#ffffff', bodyColor: '#a1a1aa', cornerRadius: 0, borderColor: '#27272a', borderWidth: 1, padding: 16, boxPadding: 6, itemSort: (a, b) => b.raw.y - a.raw.y, 
+                        callbacks: { 
+                            label: c => `${c.dataset.label}: ${fmt(c.raw.y)}` 
+                        } 
+                    } 
                 },
                 scales: {
                     x: { type: 'linear', min: mMin, max: mMax, ticks: { color: '#71717a', font: { size: 10 }, callback: v => fmt(v) }, title: { display: true, text: 'TIME (s)', color: '#71717a', font: { weight: '500', size: 10, letterSpacing: 2 }, padding: { top: 20 } }, grid: { color: 'rgba(255, 255, 255, 0.05)' } },
@@ -532,6 +685,32 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
         });
+
+        const updateSidebarMetrics = (id, arr) => {
+            const els = ['min', 'avg', 'max'].map(t => document.getElementById(`${t}-${id}`));
+            if (!arr || !arr.length) { 
+                els.forEach(el => { if (el) el.textContent = "-"; }); 
+                return; 
+            }
+            let min = Infinity, max = -Infinity, sum = 0;
+            for(let i=0; i<arr.length; i++) {
+                let v = arr[i];
+                if(v < min) min = v;
+                if(v > max) max = v;
+                sum += v;
+            }
+            if(els[0]) els[0].textContent = fmt(min);
+            if(els[1]) els[1].textContent = fmt(sum/arr.length);
+            if(els[2]) els[2].textContent = fmt(max);
+        };
+
+        updateSidebarMetrics('fps', arrFPS);
+        updateSidebarMetrics('lows', arrLow);
+        updateSidebarMetrics('rnd', arrRnd);
+        updateSidebarMetrics('cpu', arrCpu);
+        updateSidebarMetrics('disp', arrDisp);
+        updateSidebarMetrics('peri', arrPeri);
+        updateSidebarMetrics('tot', arrTot);
     }
 
     const debouncedRenderChart = debounce(renderChart, 25);
@@ -612,6 +791,7 @@ document.addEventListener('DOMContentLoaded', () => {
     dom.fInput.addEventListener('change', e => { handleFiles(e.target.files); });
     
     [dom.minR, dom.maxR].forEach(r => r.addEventListener('input', () => {
+        if (!r) return;
         const min = parseInt(dom.minR.value), max = parseInt(dom.maxR.value), tot = parseInt(dom.minR.max);
         if (min >= max) dom.minR.value = max - 1;
         dom.rTrack.style.left = (tot > 0 ? (dom.minR.value / tot * 100) : 0) + "%";
@@ -619,12 +799,27 @@ document.addEventListener('DOMContentLoaded', () => {
         debouncedRenderChart();
     }));
     
-    [dom.mouseInput, dom.fpsInput, dom.latInput].forEach(i => i.addEventListener('input', renderChart));
-    
     document.querySelectorAll('.metric-row').forEach(row => row.addEventListener('click', () => {
         const m = row.dataset.metric; 
         state.visibility[m] = !state.visibility[m];
         row.classList.toggle('disabled', !state.visibility[m]); 
+
+        if (state.viewMode === 'compare') {
+            const activeMetrics = Object.keys(state.visibility).filter(key => state.visibility[key]);
+            if (activeMetrics.length === 1) {
+                const soloMetric = activeMetrics[0];
+                state.sort.metric = soloMetric;
+                state.sort.dir = getOptimalSortDir(soloMetric);
+                
+                dom.sortSelect.value = state.sort.metric;
+                dom.sortDirToggle.textContent = state.sort.dir === 'asc' ? 'ASCENDING' : 'DESCENDING';
+            }
+        }
+
         renderChart();
     }));
+    
+    [dom.mouseInput, dom.fpsInput, dom.latInput].forEach(i => {
+        if (i) i.addEventListener('input', renderChart);
+    });
 });
