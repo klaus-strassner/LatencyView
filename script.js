@@ -193,17 +193,8 @@ document.addEventListener('DOMContentLoaded', () => {
             return d.sort((a,b) => a.x - b.x);
         };
 
-        const datasets = [];
         const activeFPS = prepPerf(colFPS), activeLow = prepPerf(colLow), activeRnd = prepPerf(colRnd), activePC = prepPerf(colPC);
         
-        // ALL line widths explicitly set to 1 for absolute precision. 
-        if (state.visibility.fps) datasets.push({ label: "AVERAGE FPS", data: activeFPS, yAxisID: 'yL', borderColor: '#10b981', borderWidth: 1, pointRadius: 0, tension: 0 });
-        if (state.visibility.lows) datasets.push({ label: "1% LOW FPS", data: activeLow, yAxisID: 'yL', borderColor: '#059669', borderWidth: 1, pointRadius: 0, tension: 0 });
-        
-        let lastIdx = null;
-        if (state.visibility.rnd) { datasets.push({ label: "RENDER LATENCY", data: activeRnd, yAxisID: 'yR', borderColor: '#52525b', backgroundColor: 'rgba(82, 82, 91, 0.15)', fill: 'origin', borderWidth: 1, pointRadius: 0, tension: 0 }); lastIdx = datasets.length - 1; }
-        if (state.visibility.cpu) { datasets.push({ label: "COMPUTE LATENCY", data: activePC, yAxisID: 'yR', borderColor: '#71717a', backgroundColor: 'rgba(113, 113, 122, 0.15)', fill: lastIdx !== null ? lastIdx : 'origin', borderWidth: 1, pointRadius: 0, tension: 0 }); lastIdx = datasets.length - 1; }
-
         const valPCD = [], valTot = [], mBase = parseFloat(dom.mouseInput.value) || 0;
         lData.slice(startIdx, endIdx + 1).forEach(r => {
             const colSys = session.lat.cols.find(c => c.toLowerCase().includes('system latency'));
@@ -213,9 +204,68 @@ document.addEventListener('DOMContentLoaded', () => {
             valTot.push({ x: r[tL], y: isRealMouse ? r[colSys] : (r[colPCD] + mBase + (mBase * r._jitter)) });
         });
 
-        if (state.visibility.disp) { datasets.push({ label: "DISPLAY LATENCY", data: valPCD, yAxisID: 'yR', borderColor: '#a1a1aa', backgroundColor: 'rgba(161, 161, 170, 0.15)', fill: lastIdx !== null ? lastIdx : 'origin', borderWidth: 1, pointRadius: 0, tension: 0 }); lastIdx = datasets.length - 1; }
-        if (state.visibility.peri) { datasets.push({ label: "PERIPHERAL LATENCY", data: valTot, yAxisID: 'yR', borderColor: '#d4d4d8', backgroundColor: 'rgba(212, 212, 216, 0.15)', fill: lastIdx !== null ? lastIdx : 'origin', borderWidth: 1, pointRadius: 0, tension: 0 }); }
-        if (state.visibility.tot) { datasets.push({ label: "TOTAL LATENCY", data: valTot, yAxisID: 'yR', borderColor: '#ffffff', borderWidth: 1, pointRadius: 0, fill: false, tension: 0 }); }
+        const datasets = [];
+
+        // Independent FPS Metric Layers
+        if (state.visibility.fps) datasets.push({ _isToggled: true, label: "AVERAGE FPS", data: activeFPS, yAxisID: 'yL', borderColor: '#10b981', borderWidth: 1, pointRadius: 0, tension: 0 });
+        if (state.visibility.lows) datasets.push({ _isToggled: true, label: "1% LOW FPS", data: activeLow, yAxisID: 'yL', borderColor: '#059669', borderWidth: 1, pointRadius: 0, tension: 0 });
+
+        // Latency Area Stack - Structurally absolute, dynamically bordered
+        const activeLatencyLayers = [
+            { id: 'rnd', label: "RENDER LATENCY", data: activeRnd, color: '#52525b', bg: 'rgba(82, 82, 91, 0.15)' },
+            { id: 'cpu', label: "COMPUTE LATENCY", data: activePC, color: '#71717a', bg: 'rgba(113, 113, 122, 0.15)' },
+            { id: 'disp', label: "DISPLAY LATENCY", data: valPCD, color: '#a1a1aa', bg: 'rgba(161, 161, 170, 0.15)' },
+            { id: 'peri', label: "PERIPHERAL LATENCY", data: valTot, color: '#d4d4d8', bg: 'rgba(212, 212, 216, 0.15)' }
+        ];
+
+        let prevIdx = 'origin';
+        activeLatencyLayers.forEach((layer, index) => {
+            const isVis = state.visibility[layer.id];
+            
+            // Look ahead to check if the layer immediately ABOVE this one is visible
+            const nextLayer = activeLatencyLayers[index + 1];
+            const isNextVis = nextLayer ? state.visibility[nextLayer.id] : false;
+            
+            // If the current layer is hidden, but the layer filling down to it is visible, 
+            // it acts as a "naked floor". We project a subtle boundary line.
+            const isNakedFloor = !isVis && isNextVis;
+
+            let strokeColor = 'transparent';
+            if (isVis) {
+                strokeColor = layer.color;
+            } else if (isNakedFloor) {
+                strokeColor = 'rgba(255, 255, 255, 0.15)'; // Very fine structural line
+            }
+
+            datasets.push({
+                _isToggled: isVis, // Custom flag to control tooltip and legend visibility
+                label: layer.label,
+                data: layer.data,
+                yAxisID: 'yR',
+                borderColor: strokeColor,
+                backgroundColor: isVis ? layer.bg : 'transparent',
+                fill: prevIdx,
+                borderWidth: 1,
+                pointRadius: 0,
+                tension: 0
+            });
+            prevIdx = datasets.length - 1; // Current index always acts as the structural floor for the next
+        });
+
+        // Top cap marker for Total System Latency
+        if (state.visibility.tot) { 
+            datasets.push({ 
+                _isToggled: true,
+                label: "TOTAL LATENCY", 
+                data: valTot, 
+                yAxisID: 'yR', 
+                borderColor: '#ffffff', 
+                borderWidth: 1, 
+                pointRadius: 0, 
+                fill: false, 
+                tension: 0 
+            }); 
+        }
 
         const updateSidebarMetrics = (id, arr) => {
             const els = ['min', 'avg', 'max'].map(t => document.getElementById(`${t}-${id}`));
@@ -242,7 +292,6 @@ document.addEventListener('DOMContentLoaded', () => {
             type: 'line', 
             data: { datasets },
             options: {
-                // EXTREME SUPERSAMPLING FOR FLAWLESS RESOLUTION
                 devicePixelRatio: Math.max(window.devicePixelRatio || 1, 4), 
                 responsive: true, 
                 maintainAspectRatio: false, 
@@ -253,7 +302,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 },
                 layout: { padding: { left: 50, right: 50, top: 50, bottom: 20 } },
                 plugins: { 
-                    legend: { display: true, position: 'top', align: 'center', labels: { color: '#a1a1aa', font: { family: "'JetBrains Mono'", size: 10, weight: '400' }, boxWidth: 10, padding: 35 } },
+                    legend: { 
+                        display: true, 
+                        position: 'top', 
+                        align: 'center', 
+                        labels: { 
+                            color: '#a1a1aa', 
+                            font: { family: "'JetBrains Mono'", size: 10, weight: '400' }, 
+                            boxWidth: 10, 
+                            padding: 35,
+                            filter: (item, chart) => chart.datasets[item.datasetIndex]._isToggled // Hide structural layers
+                        } 
+                    },
                     tooltip: { 
                         backgroundColor: '#0a0a0c', 
                         titleFont: { family: "'JetBrains Mono'", size: 11, weight: '500' }, 
@@ -266,6 +326,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         padding: 16,
                         boxPadding: 6,
                         itemSort: (a, b) => b.raw.y - a.raw.y,
+                        filter: (item) => item.dataset._isToggled, // Prevent phantom data readouts
                         callbacks: { label: c => `${c.dataset.label}: ${fmt(c.raw.y)}` } 
                     } 
                 },
