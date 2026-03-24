@@ -13,23 +13,61 @@ document.addEventListener('DOMContentLoaded', () => {
         rTrack: document.getElementById('rangeTrack'), 
         rLabel: document.getElementById('rangeLabel'),
         fInput: document.getElementById('csvFile'), 
-        aSelect: document.getElementById('activeSessionSelect'),
         mouseInput: document.getElementById('manualMouseLat'), 
         mouseStatus: document.getElementById('mouseStatus'),
         fpsInput: document.getElementById('maxFPSInput'), 
         latInput: document.getElementById('maxLatInput'),
         copyBtn: document.getElementById('copyGraphBtn'),
         mainGrid: document.getElementById('mainGrid'),
-        homeBtn: document.getElementById('homeBtn')
+        homeBtn: document.getElementById('homeBtn'),
+        csWrap: document.getElementById('customSelectWrapper'),
+        csDisp: document.getElementById('customSelectDisplay'),
+        csOpts: document.getElementById('customSelectOptions')
     };
+
+    // --- Custom Dropdown Controller ---
+    dom.csDisp.addEventListener('click', () => {
+        if (!dom.csWrap.classList.contains('disabled')) dom.csWrap.classList.toggle('open');
+    });
+
+    document.addEventListener('click', (e) => {
+        if (!dom.csWrap.contains(e.target)) dom.csWrap.classList.remove('open');
+    });
+
+    function buildCustomSelect(optionsList) {
+        dom.csOpts.innerHTML = '';
+        if (!optionsList || optionsList.length === 0) {
+            dom.csDisp.textContent = "Awaiting Data...";
+            dom.csWrap.classList.add('disabled');
+        } else {
+            dom.csDisp.textContent = state.activeKey;
+            dom.csWrap.classList.remove('disabled');
+            
+            optionsList.forEach(ts => {
+                const opt = document.createElement('div');
+                opt.className = 'custom-option' + (ts === state.activeKey ? ' selected' : '');
+                opt.textContent = ts;
+                opt.addEventListener('click', () => {
+                    state.activeKey = ts;
+                    dom.csDisp.textContent = ts;
+                    dom.csWrap.classList.remove('open');
+                    
+                    Array.from(dom.csOpts.children).forEach(c => c.classList.remove('selected'));
+                    opt.classList.add('selected');
+                    
+                    renderChart();
+                });
+                dom.csOpts.appendChild(opt);
+            });
+        }
+    }
 
     // --- State Management / Routing ---
     function resetToGuide() {
         document.body.classList.remove('has-data');
         state.activeKey = null;
         state.pairedSessions = {};
-        dom.aSelect.innerHTML = '<option value="">Awaiting Data...</option>';
-        dom.aSelect.disabled = true;
+        buildCustomSelect([]);
         if (state.chart) {
             state.chart.destroy();
             state.chart = null;
@@ -112,8 +150,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         state.pairedSessions = {}; 
-        dom.aSelect.innerHTML = '';
-        
         Object.keys(groups).forEach(ts => {
             const session = groups[ts];
             if (session.lat && session.perf) {
@@ -137,13 +173,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 session.cleanLat = Array.from(uniqueTimeMap.values()).sort((a,b) => a[tL] - b[tL]);
                 state.pairedSessions[ts] = session; 
-                dom.aSelect.add(new Option(ts, ts));
             }
         });
         
-        if (Object.keys(state.pairedSessions).length) { 
-            state.activeKey = Object.keys(state.pairedSessions)[0];
-            dom.aSelect.disabled = false; 
+        const sessionKeys = Object.keys(state.pairedSessions);
+        if (sessionKeys.length) { 
+            state.activeKey = sessionKeys[0];
+            buildCustomSelect(sessionKeys);
             
             document.body.classList.add('has-data');
             if (window.location.hash !== '#workspace') {
@@ -439,7 +475,6 @@ document.addEventListener('DOMContentLoaded', () => {
     window.addEventListener('load', () => setTimeout(() => document.body.classList.add('loaded'), 800));
     
     dom.fInput.addEventListener('change', e => { handleFiles(e.target.files); });
-    dom.aSelect.addEventListener('change', e => { state.activeKey = e.target.value; renderChart(); });
     
     [dom.minR, dom.maxR].forEach(r => r.addEventListener('input', () => {
         const min = parseInt(dom.minR.value), max = parseInt(dom.maxR.value), tot = parseInt(dom.minR.max);

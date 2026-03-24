@@ -114,7 +114,7 @@ body.loaded .main-grid { opacity: 1; }
 
 .control-group { margin-bottom: 20px; }
 .control-label { 
-    display: block; font-size: 0.55rem; color: var(--dimmer); 
+    display: block; font-size: 0.55rem; color: var(--dim); 
     text-transform: uppercase; margin-bottom: 10px; letter-spacing: 2px; 
 }
 
@@ -122,7 +122,7 @@ body.loaded .main-grid { opacity: 1; }
 select, input[type="number"] { 
     appearance: none; 
     background: transparent; 
-    color: var(--text); 
+    color: var(--dim); 
     font-family: 'JetBrains Mono', monospace; 
     font-size: 0.7rem; 
     border: 1px solid var(--line-grey); 
@@ -130,7 +130,7 @@ select, input[type="number"] {
     outline: none; 
     width: 100%; 
     border-radius: 0; 
-    transition: border-color 0.4s var(--easing);
+    transition: border-color 0.4s var(--easing), color 0.4s var(--easing);
 }
 
 select option { background-color: var(--bg); color: var(--text); }
@@ -141,7 +141,7 @@ select {
     background-size: 0.4rem auto;
     padding-right: 35px;
 }
-select:focus-visible { border-color: var(--dim); }
+select:focus-visible, input[type="number"]:focus-visible { border-color: var(--dim); color: var(--text); }
 
 input[type="number"]::-webkit-inner-spin-button, 
 input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
@@ -160,7 +160,9 @@ input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; marg
 }
 .num-btn:hover { color: var(--text); background: rgba(255, 255, 255, 0.05); }
 
-.fallback-active { border-color: var(--line-grey) !important; opacity: 0.5; }
+/* Removed opacity to maintain exact color match with other inputs */
+.fallback-active { border-color: var(--line-grey) !important; }
+
 .input-note { font-size: 0.55rem; color: var(--warn); margin-top: 10px; display: none; line-height: 1.5; letter-spacing: 0.5px; }
 .input-note.visible { display: block; }
 
@@ -170,10 +172,11 @@ input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; marg
 .range-slider-wrapper { position: relative; width: 100%; height: 1px; background: var(--line-grey); margin: 25px 0; }
 .range-slider { position: absolute; width: 100%; pointer-events: none; appearance: none; background: none; outline: none; top: -6px; }
 
-.range-slider::-webkit-slider-thumb { pointer-events: auto; appearance: none; width: 10px; height: 10px; border-radius: 0; background: var(--text); cursor: ew-resize; border: none; z-index: 3; transition: transform 0.2s var(--easing); }
-.range-slider::-moz-range-thumb { pointer-events: auto; appearance: none; width: 10px; height: 10px; border-radius: 0; background: var(--text); cursor: ew-resize; border: none; z-index: 3; transition: transform 0.2s var(--easing); }
-.range-slider:hover::-webkit-slider-thumb { transform: scale(1.2); }
-.range-slider:hover::-moz-range-thumb { transform: scale(1.2); }
+/* Structural sliders without scaling */
+.range-slider::-webkit-slider-thumb { pointer-events: auto; appearance: none; width: 10px; height: 10px; border-radius: 0; background: var(--dim); cursor: ew-resize; border: none; z-index: 3; transition: background 0.2s var(--easing); }
+.range-slider::-moz-range-thumb { pointer-events: auto; appearance: none; width: 10px; height: 10px; border-radius: 0; background: var(--dim); cursor: ew-resize; border: none; z-index: 3; transition: background 0.2s var(--easing); }
+.range-slider:hover::-webkit-slider-thumb { background: var(--text); }
+.range-slider:hover::-moz-range-thumb { background: var(--text); }
 .range-track-highlight { position: absolute; height: 100%; background: var(--dim); opacity: 0.4; z-index: 1; pointer-events: none; }
 
 .guide-wrapper { flex: 1; display: flex; justify-content: center; padding: 60px 50px; overflow-y: auto; }
@@ -230,10 +233,49 @@ body.has-data .guide-wrapper { display: none; }
 body.has-data .chart-wrapper { display: block; } 
 
 @media (max-width: 900px) {
-    .main-grid { grid-template-columns: 1fr; grid-template-rows: 50dvh 1fr; }
+    /* Fixed logic: Allow full 100dvh for landing screen, only split when data loaded */
+    .main-grid { grid-template-columns: 1fr; grid-template-rows: 1fr; }
     .upload-banner { flex-direction: column; align-items: flex-start; }
     body.has-data .main-grid { grid-template-columns: 1fr; grid-template-rows: 50dvh 1fr; }
     .chart-cell .title { padding: 30px 30px 0 30px; }
     .copy-btn { top: 30px; right: 30px; }
     .sidebar-section { padding: 30px; }
 }
+
+/* --- Bespoke Dropdown Component --- */
+.custom-select-wrapper { position: relative; user-select: none; width: 100%; }
+.custom-select-display {
+    border: 1px solid var(--line-grey); padding: 12px 16px;
+    font-size: 0.7rem; color: var(--dim); 
+    cursor: pointer;
+    display: flex; justify-content: space-between; align-items: center;
+    transition: border-color 0.4s var(--easing), color 0.4s var(--easing);
+    background: transparent;
+}
+
+.custom-select-wrapper:not(.disabled):not(.open) .custom-select-display:hover { border-color: var(--dim); color: var(--text); }
+.custom-select-wrapper.open .custom-select-display { color: var(--text); border-color: var(--dim); }
+
+/* Custom chevron arrow */
+.custom-select-display::after {
+    content: ""; width: 6px; height: 6px;
+    border-right: 1px solid var(--dimmer); border-bottom: 1px solid var(--dimmer);
+    transform: translateY(-2px) rotate(45deg); transition: transform 0.4s var(--easing);
+}
+.custom-select-wrapper.open .custom-select-display::after { transform: translateY(2px) rotate(-135deg); }
+
+/* Dropdown list container */
+.custom-select-options {
+    position: absolute; top: calc(100% - 1px); left: 0; right: 0;
+    background: var(--cell); border: 1px solid var(--line-grey);
+    z-index: 50; display: none; flex-direction: column; max-height: 200px; overflow-y: auto;
+}
+.custom-select-wrapper.open .custom-select-options { display: flex; }
+
+/* Individual options */
+.custom-option {
+    padding: 12px 16px; font-size: 0.7rem; color: var(--dimmer); cursor: pointer;
+    transition: background 0.2s var(--easing), color 0.2s var(--easing);
+}
+.custom-option:hover, .custom-option.selected { background: var(--line-grey); color: var(--text); }
+.custom-select-wrapper.disabled { opacity: 0.5; pointer-events: none; }

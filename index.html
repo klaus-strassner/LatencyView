@@ -134,7 +134,10 @@
 
                 <div class="control-group">
                     <span class="control-label">File Selection</span>
-                    <select id="activeSessionSelect" disabled><option value="">Awaiting Data...</option></select>
+                    <div class="custom-select-wrapper disabled" id="customSelectWrapper">
+                        <div class="custom-select-display" id="customSelectDisplay">Awaiting Data...</div>
+                        <div class="custom-select-options" id="customSelectOptions"></div>
+                    </div>
                 </div>
                 
                 <div class="control-group" style="margin-top: 25px;">
@@ -150,7 +153,7 @@
                 <div class="control-group" style="margin-top: 35px;">
                     <div class="control-label" style="display:flex; justify-content: space-between;">
                         <span>Timespan</span>
-                        <span id="rangeLabel" style="color: var(--text); font-weight: 400;">0.00 - 0.00s</span>
+                        <span id="rangeLabel" style="color: var(--dim); font-weight: 400;">0.00 - 0.00s</span>
                     </div>
                     <div class="range-slider-wrapper">
                         <div id="rangeTrack" class="range-track-highlight"></div>
