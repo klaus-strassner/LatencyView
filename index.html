@@ -5,11 +5,24 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="google-site-verification" content="BsgKLeBrpH8oYS320zBbgc4o0kjVoahd4c1ieyfG9is" />
 
+    <meta name="description" content="Sub-millisecond telemetry visualization for NVIDIA Reflex Latency Analyzer.">
+    <meta name="keywords" content="NVIDIA Reflex, Latency Analyzer, Input Lag, PC Latency, System Latency, Telemetry, FPS Benchmark, Gaming Performance">
+
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://latencyview.com/">
+    <meta property="og:title" content="Latency View">
+    <meta property="og:description" content="Sub-millisecond telemetry visualization for NVIDIA Reflex Latency Analyzer.">
+
+    <meta property="twitter:card" content="summary_large_image">
+    <meta property="twitter:url" content="https://latencyview.com/">
+    <meta property="twitter:title" content="Latency View">
+    <meta property="twitter:description" content="Sub-millisecond telemetry visualization for NVIDIA Reflex Latency Analyzer.">
+
     <title>Latency View</title>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
-    
+
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
 </head>
@@ -19,24 +32,19 @@
     </div>
 
     <main class="main-grid" id="mainGrid">
-        
         <section class="chart-cell">
             <button type="button" class="copy-btn" id="copyGraphBtn">Copy Graph</button>
-            
-            <div class="title" id="homeBtn" style="cursor: pointer;" title="Return to Setup">
-                Latency View<span id="chartSubTitle" class="subtitle"></span>
-            </div>
-            
+
+            <div class="title" id="homeBtn" style="cursor: pointer;" title="Return to Setup">Latency View<span id="chartSubTitle" class="subtitle"></span></div>
+
             <div class="guide-wrapper" id="guideWrapper">
                 <div class="guide-content wide-guide">
-                    
                     <div class="guide-header">
                         <h2>Latency View</h2>
                         <p>Sub-millisecond telemetry visualization.</p>
                     </div>
 
                     <div class="accordion-container">
-                        
                         <details class="step-accordion" name="setup-guide">
                             <summary>
                                 <div class="step-summary-inner">
@@ -48,7 +56,7 @@
                                 <ul class="guide-list">
                                     <li>Connect the monitor upstream cable to the computer.</li>
                                     <li>Connect the mouse to the designated Reflex port on the monitor.</li>
-                                    <li>Enable Reflex Latency Analyzer and Flash Indicator in the monitor OSD.</li>
+                                    <li>Enable Reflex Latency Analyzer in the monitor OSD.</li>
                                 </ul>
                                 <a href="https://www.nvidia.com/en-us/geforce/technologies/reflex/supported-products/" target="_blank" rel="noopener noreferrer" class="external-link">View Compatible Hardware ↗</a>
                             </div>
@@ -64,9 +72,9 @@
                             <div class="accordion-body">
                                 <ul class="guide-list">
                                     <li>Install the NVIDIA App and enable the overlay.</li>
-                                    <li>Define the output directory and assign a benchmark key in the performance settings.</li>
+                                    <li>Define the output directory and assign the benchmark hotkey.</li>
                                     <li>Enable NVIDIA Reflex inside the game settings.</li>
-                                    <li>Align the OSD indicator over the weapon flash. Execute the benchmark.</li>
+                                    <li>Align the OSD indicator and run the benchmark.</li>
                                 </ul>
                                 <a href="https://www.nvidia.com/en-eu/software/nvidia-app/" target="_blank" rel="noopener noreferrer" class="external-link">Download NVIDIA App ↗</a>
                             </div>
@@ -81,7 +89,7 @@
                             </summary>
                             <div class="accordion-body">
                                 <ul class="guide-list">
-                                    <li>Map a single mouse button to execute the benchmark key and a primary click simultaneously using peripheral software.</li>
+                                    <li>Create a macro to automate mouse clicks during a benchmark run.</li>
                                 </ul>
                             </div>
                         </details>
@@ -91,7 +99,7 @@
                     <div class="upload-banner">
                         <div class="upload-text">
                             <h3>Process Data</h3>
-                            <p>Select the Performance and Latency .csv logs.</p>
+                            <p>Select the Performance and Latency logs.</p>
                             <button type="button" class="sample-data-link">Load Sample Data</button>
                         </div>
                         <label for="csvFile" class="upload-zone slim-upload-btn">
@@ -135,12 +143,12 @@
                 <div class="control-group">
                     <span class="control-label">File Selection</span>
                     <div class="custom-select-wrapper disabled" id="customSelectWrapper">
-                        <div class="custom-select-display" id="customSelectDisplay">Awaiting Data...</div>
+                        <div class="custom-select-display" id="customSelectDisplay"></div>
                         <div class="custom-select-options" id="customSelectOptions"></div>
                     </div>
-                    <button type="button" class="action-btn disabled" id="compareBtn" style="margin-top: 15px;">Compare All Sessions</button>
+                    <button type="button" class="action-btn disabled" id="compareBtn" style="margin-top: 15px;">Compare All</button>
                 </div>
-                
+
                 <div class="control-group" style="margin-top: 25px;" id="mouseInputGroup">
                     <span class="control-label">Mouse Latency (ms)</span>
                     <div class="number-input-wrapper">
@@ -153,7 +161,7 @@
 
                 <div class="control-group" style="margin-top: 35px;" id="timespanGroup">
                     <div class="control-label" style="display:flex; justify-content: space-between;">
-                        <span>Timespan</span>
+                        <span>Timespan (s)</span>
                         <span id="rangeLabel" style="color: var(--dim); font-weight: 400;">0.00 - 0.00s</span>
                     </div>
                     <div class="range-slider-wrapper">

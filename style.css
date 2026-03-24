@@ -252,34 +252,85 @@ body.has-data .chart-wrapper { display: block; }
 
 .ui-disabled { opacity: 0.25; pointer-events: none; transition: opacity 0.4s var(--easing); }
 
-/* --- Bespoke Dropdown Component --- */
-.custom-select-wrapper { position: relative; user-select: none; width: 100%; }
-.custom-select-display {
-    border: 1px solid var(--line-grey); padding: 12px 16px;
-    font-size: 0.7rem; color: var(--dim); 
-    cursor: pointer; display: flex; justify-content: space-between; align-items: center;
-    transition: border-color 0.4s var(--easing), color 0.4s var(--easing); background: transparent;
+/* --- Bespoke Dropdown Component (Corrected) --- */
+.custom-select-wrapper { 
+    position: relative; 
+    user-select: none; 
+    width: 100%; 
 }
 
-.custom-select-wrapper:not(.disabled):not(.open) .custom-select-display:hover { border-color: var(--dim); color: var(--text); }
-.custom-select-wrapper.open .custom-select-display { color: var(--text); border-color: var(--dim); }
+.custom-select-display {
+    border: 1px solid var(--line-grey); 
+    padding: 12px 16px;
+    font-size: 0.7rem; 
+    color: var(--dim); 
+    cursor: pointer; 
+    display: flex; 
+    justify-content: space-between; 
+    align-items: center;
+    transition: border-color 0.4s var(--easing), color 0.4s var(--easing); 
+    background: transparent;
+}
+
+/* 1. Only highlight when actually hovering, regardless of open/closed state */
+.custom-select-wrapper:not(.disabled) .custom-select-display:hover { 
+    border-color: var(--dim); 
+    color: var(--text); 
+}
+
+/* 2. When the menu is OPEN, we keep the border defined, but let the text dim if not hovered */
+.custom-select-wrapper.open .custom-select-display { 
+    border-color: var(--dimmer); /* Subtle border to show it's active */
+    color: var(--dim);           /* Return text to dim unless hovered */
+}
 
 .custom-select-display::after {
-    content: ""; width: 6px; height: 6px; border-right: 1px solid var(--dimmer); border-bottom: 1px solid var(--dimmer);
-    transform: translateY(-2px) rotate(45deg); transition: transform 0.4s var(--easing);
+    content: ""; 
+    width: 6px; 
+    height: 6px; 
+    border-right: 1px solid var(--dimmer); 
+    border-bottom: 1px solid var(--line-grey); /* Matched to border logic */
+    transform: translateY(-2px) rotate(45deg); 
+    transition: transform 0.4s var(--easing);
 }
-.custom-select-wrapper.open .custom-select-display::after { transform: translateY(2px) rotate(-135deg); }
+
+.custom-select-wrapper.open .custom-select-display::after { 
+    transform: translateY(2px) rotate(-135deg); 
+    border-color: var(--text); /* Make arrow bright when open */
+}
 
 .custom-select-options {
-    position: absolute; top: calc(100% - 1px); left: 0; right: 0;
-    background: var(--cell); border: 1px solid var(--line-grey);
-    z-index: 50; display: none; flex-direction: column; max-height: 200px; overflow-y: auto;
+    position: absolute; 
+    top: calc(100% - 1px); 
+    left: 0; 
+    right: 0;
+    background: var(--cell); 
+    border: 1px solid var(--dimmer); /* Slightly brighter border for the menu itself */
+    z-index: 50; 
+    display: none; 
+    flex-direction: column; 
+    max-height: 200px; 
+    overflow-y: auto;
 }
-.custom-select-wrapper.open .custom-select-options { display: flex; }
+
+.custom-select-wrapper.open .custom-select-options { 
+    display: flex; 
+}
 
 .custom-option {
-    padding: 12px 16px; font-size: 0.7rem; color: var(--dimmer); cursor: pointer;
+    padding: 12px 16px; 
+    font-size: 0.7rem; 
+    color: var(--dimmer); 
+    cursor: pointer;
     transition: background 0.2s var(--easing), color 0.2s var(--easing);
 }
-.custom-option:hover, .custom-option.selected { background: var(--line-grey); color: var(--text); }
-.custom-select-wrapper.disabled { opacity: 0.5; pointer-events: none; }
+
+.custom-option:hover, .custom-option.selected { 
+    background: var(--line-grey); 
+    color: var(--text); 
+}
+
+.custom-select-wrapper.disabled { 
+    opacity: 0.5; 
+    pointer-events: none; 
+}

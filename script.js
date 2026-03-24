@@ -87,7 +87,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             state.viewMode = 'single';
             dom.compareBtn.classList.remove('active');
-            dom.compareBtn.textContent = 'Compare All Sessions';
+            dom.compareBtn.textContent = 'Compare All';
             dom.csWrap.classList.remove('ui-disabled');
             dom.csDisp.textContent = state.activeKey;
             dom.timespanGroup.classList.remove('ui-disabled');
@@ -102,7 +102,7 @@ document.addEventListener('DOMContentLoaded', () => {
         state.pairedSessions = {};
         state.viewMode = 'single';
         dom.compareBtn.classList.remove('active');
-        dom.compareBtn.textContent = 'Compare All Sessions';
+        dom.compareBtn.textContent = 'Compare All';
         dom.timespanGroup.classList.remove('ui-disabled');
         dom.csWrap.classList.remove('ui-disabled');
         
