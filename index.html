@@ -9,44 +9,44 @@
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
-
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div id="loader">Loading...</div>
+    <div id="loader">INITIALIZING...</div>
 
     <main class="main-grid" id="mainGrid">
-
+        
         <section class="chart-cell">
             <button type="button" class="copy-btn" id="copyGraphBtn">Copy Graph</button>
-
-            <div class="title" id="homeBtn" style="cursor: pointer;" title="Return to Guide">Latency View<span id="chartSubTitle" style="font-size: 0.7rem; color: var(--dim); margin-left: 8px;"></span></div>
-
+            
+            <div class="title" id="homeBtn" style="cursor: pointer;" title="Return to Setup">Latency View<span id="chartSubTitle" class="subtitle"></span></div>
+            
             <div class="guide-wrapper" id="guideWrapper">
                 <div class="guide-content wide-guide">
-
+                    
                     <div class="guide-header">
-                        <h2>Latency View</h2>
-                        <p>Measure and view end to end system latency.</p>
+                        <h2>Initialization</h2>
+                        <p>Configure hardware and software to capture latency data.</p>
                     </div>
 
                     <div class="accordion-container">
+                        
                         <details class="step-accordion">
                             <summary>
                                 <div class="step-summary-inner">
                                     <div class="step-num">1</div>
-                                    <h3>Monitor</h3>
+                                    <h3>Hardware</h3>
                                 </div>
                             </summary>
                             <div class="accordion-body">
-                                <p class="step-intro">To capture true end-to-end latency, your display must feature the Reflex Latency Analyzer.<a href="https://www.nvidia.com/en-us/geforce/technologies/reflex/supported-products/" target="_blank" rel="noopener noreferrer" class="external-link">View Compatible Monitors ↗</a></p>
-
-                                <div class="split-info">
-                                    <ul class="guide-list">
-                                        <li><strong>1. Connections:</strong> Connect the USB upstream cable from your monitor to your PC. Plug your mouse directly into the dedicated Reflex USB port on the monitor (usually marked in red).</li>
-                                    </ul>
-                                </div>
+                                <ul class="guide-list">
+                                    <li>Connect the monitor upstream cable to the computer.</li>
+                                    <li>Connect the mouse to the designated Reflex port on the monitor.</li>
+                                    <li>Enable Reflex Latency Analyzer and Flash Indicator in the monitor OSD.</li>
+                                </ul>
+                                <a href="https://www.nvidia.com/en-us/geforce/technologies/reflex/supported-products/" target="_blank" rel="noopener noreferrer" class="external-link">View Compatible Hardware ↗</a>
                             </div>
                         </details>
 
@@ -54,17 +54,17 @@
                             <summary>
                                 <div class="step-summary-inner">
                                     <div class="step-num">2</div>
-                                    <h3>Software & Game Setup</h3>
+                                    <h3>Software</h3>
                                 </div>
                             </summary>
                             <div class="accordion-body">
-                                <p class="step-intro">Currently only the NVIDIA App provides support for logging end to end system latency<a href="https://www.nvidia.com/en-eu/software/nvidia-app/" target="_blank" rel="noopener noreferrer" class="external-link">Download NVIDIA App ↗</a></p>
-
-                                <div class="split-info">
-                                    <ul class="guide-list">
-                                        <li><strong>1. App Settings:</strong> Open the NVIDIA App (Continue as Guest). Go to Settings > Features and enable the <strong>In-Game Overlay</strong>.</li>
-                                    </ul>
-                                </div>
+                                <ul class="guide-list">
+                                    <li>Install the NVIDIA App and enable the overlay.</li>
+                                    <li>Define the output directory and assign a benchmark key in the performance settings.</li>
+                                    <li>Enable NVIDIA Reflex inside the game settings.</li>
+                                    <li>Align the OSD indicator over the weapon flash. Execute the benchmark.</li>
+                                </ul>
+                                <a href="https://www.nvidia.com/en-eu/software/nvidia-app/" target="_blank" rel="noopener noreferrer" class="external-link">Download NVIDIA App ↗</a>
                             </div>
                         </details>
 
@@ -72,12 +72,12 @@
                             <summary>
                                 <div class="step-summary-inner">
                                     <div class="step-num">3</div>
-                                    <h3>Automate Logging <span style="font-size:0.7rem; color:var(--dim); font-weight:normal; margin-left: 5px;">(Optional)</span></h3>
+                                    <h3>Automation</h3>
                                 </div>
                             </summary>
                             <div class="accordion-body">
-                                <p class="step-intro">For compareable results...</p>
                                 <ul class="guide-list">
+                                    <li>Map a single mouse button to execute the benchmark key and a primary click simultaneously using peripheral software.</li>
                                 </ul>
                             </div>
                         </details>
@@ -86,11 +86,12 @@
 
                     <div class="upload-banner">
                         <div class="upload-text">
-                            <h3>Ready to Analyze?</h3>
-                            <p>Select both the <strong>Performance</strong> and <strong>Latency</strong> .csv logs from your documents folder.</p>
+                            <h3>Process Data</h3>
+                            <p>Select the Performance and Latency .csv logs.</p>
+                            <button type="button" class="sample-data-link">Load Sample Data</button>
                         </div>
                         <label for="csvFile" class="upload-zone slim-upload-btn">
-                            <span>Select Logs</span>
+                            <span>Select Files</span>
                         </label>
                     </div>
 
@@ -102,7 +103,7 @@
 
         <aside class="sidebar">
             <section class="sidebar-section">
-                <div class="title">Performance Metrics</div>
+                <div class="title">Metrics</div>
                 <div class="stats-grid" style="cursor: default; border: none; padding-bottom: 5px;">
                     <span></span>
                     <div class="stats-header">MIN</div>
@@ -112,10 +113,10 @@
                 <div class="stats-grid metric-row" data-metric="fps"><div class="stats-label"><div class="indicator" style="background:var(--c-fps)"></div> AVERAGE FPS</div><div class="stats-val" id="min-fps">-</div><div class="stats-val highlight" id="avg-fps">-</div><div class="stats-val" id="max-fps">-</div></div>
                 <div class="stats-grid metric-row" data-metric="lows"><div class="stats-label"><div class="indicator" style="background:var(--c-lows)"></div> 1% LOW FPS</div><div class="stats-val" id="min-lows">-</div><div class="stats-val highlight" id="avg-lows">-</div><div class="stats-val" id="max-lows">-</div></div>
                 <div class="stats-grid metric-row" data-metric="tot"><div class="stats-label"><div class="indicator" style="background:var(--c-totlat)"></div> TOTAL LATENCY</div><div class="stats-val" id="min-tot">-</div><div class="stats-val highlight" id="avg-tot">-</div><div class="stats-val" id="max-tot">-</div></div>
-                <div class="stats-grid metric-row" data-metric="peri"><div class="stats-label"><div class="indicator" style="background:var(--c-syslat)"></div> PERIPHERAL LATENCY</div><div class="stats-val" id="min-peri">-</div><div class="stats-val highlight" id="avg-peri">-</div><div class="stats-val" id="max-peri">-</div></div>
-                <div class="stats-grid metric-row" data-metric="disp"><div class="stats-label"><div class="indicator" style="background:var(--c-pcdisp)"></div> DISPLAY LATENCY</div><div class="stats-val" id="min-disp">-</div><div class="stats-val highlight" id="avg-disp">-</div><div class="stats-val" id="max-disp">-</div></div>
-                <div class="stats-grid metric-row" data-metric="cpu"><div class="stats-label"><div class="indicator" id="ind-cpu" style="background:var(--c-pclat)"></div> COMPUTE LATENCY</div><div class="stats-val" id="min-cpu">-</div><div class="stats-val highlight" id="avg-cpu">-</div><div class="stats-val" id="max-cpu">-</div></div>
-                <div class="stats-grid metric-row" data-metric="rnd"><div class="stats-label"><div class="indicator" style="background:var(--c-rndlat)"></div> RENDER LATENCY</div><div class="stats-val" id="min-rnd">-</div><div class="stats-val highlight" id="avg-rnd">-</div><div class="stats-val" id="max-rnd">-</div></div>
+                <div class="stats-grid metric-row disabled" data-metric="peri"><div class="stats-label"><div class="indicator" style="background:var(--c-syslat)"></div> PERIPHERAL LATENCY</div><div class="stats-val" id="min-peri">-</div><div class="stats-val highlight" id="avg-peri">-</div><div class="stats-val" id="max-peri">-</div></div>
+                <div class="stats-grid metric-row disabled" data-metric="disp"><div class="stats-label"><div class="indicator" style="background:var(--c-pcdisp)"></div> DISPLAY LATENCY</div><div class="stats-val" id="min-disp">-</div><div class="stats-val highlight" id="avg-disp">-</div><div class="stats-val" id="max-disp">-</div></div>
+                <div class="stats-grid metric-row disabled" data-metric="cpu"><div class="stats-label"><div class="indicator" id="ind-cpu" style="background:var(--c-pclat)"></div> COMPUTE LATENCY</div><div class="stats-val" id="min-cpu">-</div><div class="stats-val highlight" id="avg-cpu">-</div><div class="stats-val" id="max-cpu">-</div></div>
+                <div class="stats-grid metric-row disabled" data-metric="rnd"><div class="stats-label"><div class="indicator" style="background:var(--c-rndlat)"></div> RENDER LATENCY</div><div class="stats-val" id="min-rnd">-</div><div class="stats-val highlight" id="avg-rnd">-</div><div class="stats-val" id="max-rnd">-</div></div>
             </section>
 
             <section class="sidebar-section no-border">
@@ -123,25 +124,29 @@
 
                 <input type="file" id="csvFile" accept=".csv" multiple style="display: none;">
 
-                <label for="csvFile" class="upload-zone" id="dropZone">
-                    <span>upload new .csv</span>
+                <label for="csvFile" class="upload-zone" id="dropZone" style="margin-bottom: 30px;">
+                    <span>Load New Data</span>
                 </label>
 
-                <div class="split-row">
-                    <div class="control-group" style="flex: 2;">
-                        <label for="activeSessionSelect" class="control-label">File Select</label>
-                        <select id="activeSessionSelect" disabled><option value="">Waiting for file...</option></select>
+                <div class="control-group">
+                    <span class="control-label">File Selection</span>
+                    <select id="activeSessionSelect" disabled><option value="">Awaiting Data...</option></select>
+                </div>
+                
+                <div class="control-group" style="margin-top: 20px;">
+                    <span class="control-label">Mouse Latency (ms)</span>
+                    <div class="number-input-wrapper">
+                        <button type="button" class="num-btn minus" data-target="manualMouseLat">−</button>
+                        <input type="number" id="manualMouseLat" value="1.0" step="0.1" min="0">
+                        <button type="button" class="num-btn plus" data-target="manualMouseLat">+</button>
                     </div>
-                    <div class="control-group">
-                        <label for="manualMouseLat" class="control-label">Mouse Latency<span id="mouseStatus" class="mouse-tag"></span></label>
-                        <input type="number" id="manualMouseLat" value="1.0" step="0.1">
-                    </div>
+                    <div id="mouseStatus" class="input-note"></div>
                 </div>
 
-                <div class="control-group">
+                <div class="control-group" style="margin-top: 30px;">
                     <div class="control-label" style="display:flex; justify-content: space-between;">
                         <span>Timespan</span>
-                        <span id="rangeLabel" style="color: #fff;">0.00 - 0.00s</span>
+                        <span id="rangeLabel" style="color: #fff; font-weight: 400;">0.00 - 0.00s</span>
                     </div>
                     <div class="range-slider-wrapper">
                         <div id="rangeTrack" class="range-track-highlight"></div>
@@ -150,14 +155,22 @@
                     </div>
                 </div>
 
-                <div class="split-row" style="margin-top: 25px;">
+                <div class="split-row" style="margin-top: 30px;">
                     <div class="control-group">
-                        <label for="maxFPSInput" class="control-label">Graph Max FPS</label>
-                        <input type="number" id="maxFPSInput" value="600" step="50" min="0">
+                        <label class="control-label">MAX FPS</label>
+                        <div class="number-input-wrapper">
+                            <button type="button" class="num-btn minus" data-target="maxFPSInput">−</button>
+                            <input type="number" id="maxFPSInput" value="600" step="50" min="0">
+                            <button type="button" class="num-btn plus" data-target="maxFPSInput">+</button>
+                        </div>
                     </div>
                     <div class="control-group">
-                        <label for="maxLatInput" class="control-label">Graph Max Latency</label>
-                        <input type="number" id="maxLatInput" value="30" step="5" min="0">
+                        <label class="control-label">MAX LATENCY (ms)</label>
+                        <div class="number-input-wrapper">
+                            <button type="button" class="num-btn minus" data-target="maxLatInput">−</button>
+                            <input type="number" id="maxLatInput" value="30" step="5" min="0">
+                            <button type="button" class="num-btn plus" data-target="maxLatInput">+</button>
+                        </div>
                     </div>
                 </div>
             </section>

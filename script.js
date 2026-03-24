@@ -1,7 +1,7 @@
 document.addEventListener('DOMContentLoaded', () => {
     // --- Application State ---
     const state = {
-        visibility: { fps: true, lows: true, rnd: true, cpu: true, disp: true, peri: true, tot: true },
+        visibility: { fps: true, lows: true, rnd: false, cpu: false, disp: false, peri: false, tot: true },
         pairedSessions: {}, 
         activeKey: null, 
         chart: null
@@ -28,7 +28,7 @@ document.addEventListener('DOMContentLoaded', () => {
         document.body.classList.remove('has-data');
         state.activeKey = null;
         state.pairedSessions = {};
-        dom.aSelect.innerHTML = '<option value="">Waiting for file...</option>';
+        dom.aSelect.innerHTML = '<option value="">Awaiting Data...</option>';
         dom.aSelect.disabled = true;
         if (state.chart) {
             state.chart.destroy();
@@ -37,7 +37,6 @@ document.addEventListener('DOMContentLoaded', () => {
         dom.fInput.value = ''; 
     }
 
-    // Handle browser Back/Forward buttons
     window.addEventListener('popstate', () => {
         if (window.location.hash !== '#workspace') {
             resetToGuide();
@@ -47,7 +46,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Handle top-left Home logo click
     dom.homeBtn.addEventListener('click', () => {
         history.pushState('', document.title, window.location.pathname + window.location.search);
         resetToGuide();
@@ -87,21 +85,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (Math.abs(left[timeCol] - right[timeCol]) < 0.0001) return left[col];
         return left[col] + (right[col] - left[col]) * ((time - left[timeCol]) / (right[timeCol] - left[timeCol]));
     }
-
-    // --- Grid Mouse Spotlight Effect ---
-    dom.mainGrid.addEventListener('mousemove', (e) => {
-        const r = dom.mainGrid.getBoundingClientRect();
-        dom.mainGrid.style.setProperty('--mouse-x', `${(e.clientX - r.left) / r.width * 100}%`);
-        dom.mainGrid.style.setProperty('--mouse-y', `${(e.clientY - r.top) / r.height * 100}%`);
-    });
-    dom.mainGrid.addEventListener('mouseenter', () => {
-        dom.mainGrid.style.setProperty('--spotlight-color', '#4a4a5a'); 
-    });
-    dom.mainGrid.addEventListener('mouseleave', () => {
-        dom.mainGrid.style.setProperty('--spotlight-color', 'var(--line-grey)');
-        dom.mainGrid.style.setProperty('--mouse-x', '-100%');
-        dom.mainGrid.style.setProperty('--mouse-y', '-100%');
-    });
 
     // --- Core Logic ---
     async function handleFiles(files) {
@@ -177,9 +160,15 @@ document.addEventListener('DOMContentLoaded', () => {
         const lData = session.cleanLat, pData = session.perf.data;
         const tL = session.lat.cols[0], tP = session.perf.cols[0];
 
-        dom.mouseStatus.textContent = session.hasMouseData ? "" : "(MANUAL)";
-        dom.mouseStatus.style.color = session.hasMouseData ? "" : "var(--warn)";
-        dom.mouseInput.classList.toggle('fallback-active', !session.hasMouseData);
+        // Update Mouse Latency Note logic
+        if (session.hasMouseData) {
+            dom.mouseStatus.classList.remove('visible');
+            dom.mouseInput.parentElement.classList.remove('fallback-active');
+        } else {
+            dom.mouseStatus.textContent = "Note: Non-Reflex compatible mouse detected. Using estimated latency.";
+            dom.mouseStatus.classList.add('visible');
+            dom.mouseInput.parentElement.classList.add('fallback-active');
+        }
 
         if (dom.minR.max != lData.length - 1) {
             dom.minR.max = lData.length - 1; 
@@ -209,11 +198,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const activeFPS = prepPerf(colFPS), activeLow = prepPerf(colLow), activeRnd = prepPerf(colRnd), activePC = prepPerf(colPC);
         
         if (state.visibility.fps) datasets.push({ label: "AVERAGE FPS", data: activeFPS, yAxisID: 'yL', borderColor: '#32d74b', borderWidth: 2, pointRadius: 0 });
-        if (state.visibility.lows) datasets.push({ label: "1% LOW FPS", data: activeLow, yAxisID: 'yL', borderColor: '#1d7a2b', borderWidth: 2, pointRadius: 0 });
+        if (state.visibility.lows) datasets.push({ label: "1% LOW FPS", data: activeLow, yAxisID: 'yL', borderColor: '#16a34a', borderWidth: 2, pointRadius: 0 });
         
         let lastIdx = null;
-        if (state.visibility.rnd) { datasets.push({ label: "RENDER LATENCY", data: activeRnd, yAxisID: 'yR', borderColor: '#fde047', backgroundColor: 'rgba(253, 224, 71, 0.1)', fill: 'origin', borderWidth: 1.5, pointRadius: 0 }); lastIdx = datasets.length - 1; }
-        if (state.visibility.cpu) { datasets.push({ label: "CPU LATENCY", data: activePC, yAxisID: 'yR', borderColor: '#ff9f0a', backgroundColor: 'rgba(255, 159, 10, 0.1)', fill: lastIdx !== null ? lastIdx : 'origin', borderWidth: 1.5, pointRadius: 0 }); lastIdx = datasets.length - 1; }
+        if (state.visibility.rnd) { datasets.push({ label: "RENDER LATENCY", data: activeRnd, yAxisID: 'yR', borderColor: '#52525b', backgroundColor: 'rgba(82, 82, 91, 0.1)', fill: 'origin', borderWidth: 1.5, pointRadius: 0 }); lastIdx = datasets.length - 1; }
+        if (state.visibility.cpu) { datasets.push({ label: "COMPUTE LATENCY", data: activePC, yAxisID: 'yR', borderColor: '#71717a', backgroundColor: 'rgba(113, 113, 122, 0.1)', fill: lastIdx !== null ? lastIdx : 'origin', borderWidth: 1.5, pointRadius: 0 }); lastIdx = datasets.length - 1; }
 
         const valPCD = [], valTot = [], mBase = parseFloat(dom.mouseInput.value) || 0;
         lData.slice(startIdx, endIdx + 1).forEach(r => {
@@ -224,9 +213,9 @@ document.addEventListener('DOMContentLoaded', () => {
             valTot.push({ x: r[tL], y: isRealMouse ? r[colSys] : (r[colPCD] + mBase + (mBase * r._jitter)) });
         });
 
-        if (state.visibility.disp) { datasets.push({ label: "DISPLAY LATENCY", data: valPCD, yAxisID: 'yR', borderColor: '#ff375f', backgroundColor: 'rgba(255, 55, 95, 0.1)', fill: lastIdx !== null ? lastIdx : 'origin', borderWidth: 1.5, pointRadius: 0 }); lastIdx = datasets.length - 1; }
-        if (state.visibility.peri) { datasets.push({ label: "PERIPHERAL LATENCY", data: valTot, yAxisID: 'yR', borderColor: '#bf5af2', backgroundColor: 'rgba(191, 90, 242, 0.1)', fill: lastIdx !== null ? lastIdx : 'origin', borderWidth: 1.5, pointRadius: 0 }); }
-        if (state.visibility.tot) { datasets.push({ label: "TOTAL LATENCY", data: valTot, yAxisID: 'yR', borderColor: '#fff', borderWidth: 1, pointRadius: 0, fill: false }); }
+        if (state.visibility.disp) { datasets.push({ label: "DISPLAY LATENCY", data: valPCD, yAxisID: 'yR', borderColor: '#a1a1aa', backgroundColor: 'rgba(161, 161, 170, 0.1)', fill: lastIdx !== null ? lastIdx : 'origin', borderWidth: 1.5, pointRadius: 0 }); lastIdx = datasets.length - 1; }
+        if (state.visibility.peri) { datasets.push({ label: "PERIPHERAL LATENCY", data: valTot, yAxisID: 'yR', borderColor: '#d4d4d8', backgroundColor: 'rgba(212, 212, 216, 0.1)', fill: lastIdx !== null ? lastIdx : 'origin', borderWidth: 1.5, pointRadius: 0 }); }
+        if (state.visibility.tot) { datasets.push({ label: "TOTAL LATENCY", data: valTot, yAxisID: 'yR', borderColor: '#ffffff', borderWidth: 1, pointRadius: 0, fill: false }); }
 
         const updateSidebarMetrics = (id, arr) => {
             const els = ['min', 'avg', 'max'].map(t => document.getElementById(`${t}-${id}`));
@@ -256,22 +245,99 @@ document.addEventListener('DOMContentLoaded', () => {
                 responsive: true, 
                 maintainAspectRatio: false, 
                 animation: false,
-                layout: { padding: { left: 80, right: 80, top: 40, bottom: 20 } },
+                layout: { padding: { left: 40, right: 40, top: 40, bottom: 20 } },
                 plugins: { 
-                    legend: { display: true, position: 'top', align: 'center', labels: { color: '#888', font: { family: "'JetBrains Mono'", size: 11, weight: '700' }, boxWidth: 12, padding: 30 } },
-                    tooltip: { backgroundColor: '#050505', titleFont: { family: "'JetBrains Mono'" }, callbacks: { label: c => `${c.dataset.label}: ${fmt(c.raw.y)}` } } 
+                    legend: { display: true, position: 'top', align: 'center', labels: { color: '#a1a1aa', font: { family: "'JetBrains Mono'", size: 10, weight: '500' }, boxWidth: 12, padding: 30 } },
+                    tooltip: { 
+                        backgroundColor: '#050505', 
+                        titleFont: { family: "'JetBrains Mono'", size: 10 }, 
+                        bodyFont: { family: "'JetBrains Mono'", size: 10 },
+                        cornerRadius: 0,
+                        borderColor: '#27272a', 
+                        borderWidth: 1,
+                        padding: 12,
+                        callbacks: { label: c => `${c.dataset.label}: ${fmt(c.raw.y)}` } 
+                    } 
                 },
                 scales: {
-                    x: { type: 'linear', min: mMin, max: mMax, ticks: { color: '#444', font: { size: 10 }, callback: v => fmt(v) }, title: { display: true, text: 'TIME (S)', color: '#666', font: { weight: 'bold' } }, grid: { color: '#1a1a20' } },
-                    yL: { type: 'linear', position: 'left', min: 0, max: fM, ticks: { color: '#888', font: { size: 10 }, callback: v => fmt(v) }, title: { display: true, text: 'FPS', color: '#666', font: { weight: 'bold' } }, grid: { color: '#1a1a20' }, afterFit: s => s.width = 60 },
-                    yR: { type: 'linear', position: 'right', min: 0, max: lM, ticks: { color: '#888', font: { size: 10 }, callback: v => fmt(v) }, title: { display: true, text: 'LATENCY (MS)', color: '#666', font: { weight: 'bold' } }, grid: { drawOnChartArea: false }, afterFit: s => s.width = 60 }
+                    x: { type: 'linear', min: mMin, max: mMax, ticks: { color: '#737373', font: { size: 10 }, callback: v => fmt(v) }, title: { display: true, text: 'TIME (s)', color: '#737373', font: { weight: '500', size: 10 }, padding: { top: 15 } }, grid: { color: '#1a1a1a' } },
+                    yL: { type: 'linear', position: 'left', min: 0, max: fM, ticks: { color: '#737373', font: { size: 10 }, callback: v => fmt(v) }, title: { display: true, text: 'FPS', color: '#737373', font: { weight: '500', size: 10 }, padding: { bottom: 15 } }, grid: { color: '#1a1a1a' }, afterFit: s => s.width = 60 },
+                    yR: { type: 'linear', position: 'right', min: 0, max: lM, ticks: { color: '#737373', font: { size: 10 }, callback: v => fmt(v) }, title: { display: true, text: 'LATENCY (ms)', color: '#737373', font: { weight: '500', size: 10 }, padding: { bottom: 15 } }, grid: { drawOnChartArea: false }, afterFit: s => s.width = 60 }
                 }
             }
         });
     }
 
-    // --- Event Listeners ---
     const debouncedRenderChart = debounce(renderChart, 25);
+
+    // Custom Input Spinner Logic
+    document.querySelectorAll('.num-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const targetId = e.target.dataset.target;
+            const input = document.getElementById(targetId);
+            const step = parseFloat(input.step) || 1;
+            const min = input.min !== "" ? parseFloat(input.min) : -Infinity;
+            let val = parseFloat(input.value) || 0;
+
+            if (e.target.classList.contains('plus')) val += step;
+            else if (e.target.classList.contains('minus')) val -= step;
+            
+            if (val < min) val = min;
+            
+            const decimals = (input.step.split('.')[1] || '').length;
+            input.value = val.toFixed(decimals);
+            
+            input.dispatchEvent(new Event('input'));
+        });
+    });
+
+    document.querySelectorAll('.sample-data-link').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+            const originalText = e.target.innerText;
+            e.target.innerText = "LOADING DATA...";
+            
+            const timestamps = [
+                '2026-03-24T04-53-39',
+                '2026-03-24T05-01-02',
+                '2026-03-24T05-17-51',
+                '2026-03-24T05-23-26',
+                '2026-03-24T05-52-49',
+                '2026-03-24T06-28-45'
+            ];
+
+            try {
+                let allSampleFiles = [];
+
+                for (const ts of timestamps) {
+                    const perfName = `NVIDIA_App_Performance_Log_${ts}.csv`;
+                    const latName = `NVIDIA_App_Latency_Log_${ts}.csv`;
+
+                    const [perfRes, latRes] = await Promise.all([
+                        fetch(`./samples/${perfName}`),
+                        fetch(`./samples/${latName}`)
+                    ]);
+
+                    if (perfRes.ok && latRes.ok) {
+                        const pBlob = await perfRes.blob();
+                        const lBlob = await latRes.blob();
+                        allSampleFiles.push(new File([pBlob], perfName, { type: "text/csv" }));
+                        allSampleFiles.push(new File([lBlob], latName, { type: "text/csv" }));
+                    }
+                }
+
+                if (allSampleFiles.length === 0) {
+                    throw new Error("No files located.");
+                }
+
+                await handleFiles(allSampleFiles);
+            } catch (err) {
+                alert("Data retrieval failed. Verify local server configuration.");
+                console.error(err);
+            } finally {
+                e.target.innerText = originalText;
+            }
+        });
+    });
 
     dom.copyBtn.addEventListener('click', () => {
         if (!state.chart) return;
@@ -281,22 +347,22 @@ document.addEventListener('DOMContentLoaded', () => {
         tempCanvas.height = originalCanvas.height;
         const ctx = tempCanvas.getContext('2d');
         
-        ctx.fillStyle = '#08080a';
+        ctx.fillStyle = '#09090b'; 
         ctx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
         ctx.drawImage(originalCanvas, 0, 0);
         
         tempCanvas.toBlob(async (blob) => {
             try {
                 await navigator.clipboard.write([new ClipboardItem({"image/png": blob})]);
-                dom.copyBtn.innerText = "COPIED!";
+                dom.copyBtn.innerText = "COPIED";
             } catch (err) {
                 const a = document.createElement('a');
                 a.download = 'latency_graph.png';
                 a.href = tempCanvas.toDataURL('image/png');
                 a.click();
-                dom.copyBtn.innerText = "DOWNLOADED!";
+                dom.copyBtn.innerText = "DOWNLOADED";
             }
-            setTimeout(() => dom.copyBtn.innerText = "Copy Graph", 2000);
+            setTimeout(() => dom.copyBtn.innerText = "COPY GRAPH", 2000);
         }, 'image/png');
     });
 
