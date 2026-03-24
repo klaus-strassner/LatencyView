@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NVIDIA Log Visualizer | Professional Workspace</title>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+
+    <style>
+        :root {
+            --bg: #08080a; --cell: #0f0f12; --text: #ffffff; --dim: #666677; --line-grey: #1e1e24; 
+            --spotlight-color: rgba(255, 255, 255, 0.03); --thickness: 1px;
+            --c-fps: #32d74b; --c-lows: #1d7a2b; --c-rndlat: #fde047; --c-rndlat_fill: rgba(253, 224, 71, 0.15); 
+            --c-pclat: #ff9f0a; --c-pclat_fill: rgba(255, 159, 10, 0.15); --c-pcdisp: #ff375f; 
+            --c-pcdisp_fill: rgba(255, 55, 95, 0.15); --c-syslat: #bf5af2; --c-syslat_fill: rgba(191, 90, 242, 0.15); 
+            --c-totlat: #ffffff; --c-disabled: #333333;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: var(--bg); color: var(--text); font-family: 'JetBrains Mono', monospace; height: 100dvh; overflow: hidden; }
+        
+        #loader { position: fixed; inset: 0; z-index: 100; background: var(--bg); display: flex; align-items: center; justify-content: center; letter-spacing: 4px; font-size: 0.8rem; color: var(--dim); transition: opacity 0.8s ease, visibility 0.8s; text-transform: uppercase; }
+        body.loaded #loader { opacity: 0; visibility: hidden; }
+        
+        .main-grid { display: grid; width: 100vw; height: 100dvh; grid-template-columns: 1fr 480px; gap: 1px; background: var(--line-grey); opacity: 0; transition: opacity 1s ease; }
+        body.loaded .main-grid { opacity: 1; }
+        
+        /* Layout Sections */
+        .chart-cell { background: var(--bg); position: relative; display: flex; flex-direction: column; overflow: hidden; } 
+        .sidebar { background: var(--cell); display: flex; flex-direction: column; overflow-y: auto; overflow-x: hidden; }
+        
+        .sidebar-section { padding: 25px 30px; border-bottom: 1px solid var(--line-grey); }
+        .sidebar-section.no-border { border-bottom: none; }
+        
+        .title { text-transform: uppercase; font-size: 0.75rem; font-weight: 700; letter-spacing: 2px; color: var(--dim); margin-bottom: 15px; }
+        .chart-cell .title { padding: 30px 60px 0 60px; font-size: 1.1rem; display: flex; justify-content: space-between; align-items: center; margin-bottom: 0; }
+        
+        /* Stats Table */
+        .stats-grid { display: grid; grid-template-columns: 1fr 80px 80px 80px; gap: 10px; align-items: center; padding: 8px 0; cursor: pointer; user-select: none; border-bottom: 1px solid #14141a; }
+        .stats-grid.disabled { opacity: 0.2; }
+        .stats-header { font-size: 0.55rem; color: var(--dim); text-align: right; font-weight: 700; }
+        .stats-label { font-size: 0.65rem; color: var(--text); display: flex; align-items: center; gap: 10px; text-align: left; white-space: nowrap; }
+        .stats-val { font-size: 0.7rem; color: var(--dim); text-align: right; }
+        .stats-val.highlight { color: #fff; font-weight: 700; }
+        .indicator { width: 3px; height: 14px; border-radius: 1px; flex-shrink: 0; }
+
+        /* Settings Controls */
+        .upload-zone { border: 1px dashed var(--line-grey); padding: 20px; text-align: center; cursor: pointer; transition: all 0.2s; border-radius: 4px; margin-bottom: 15px; }
+        .upload-zone:hover { background: #15151c; border-color: #444; }
+        .upload-zone .desc { font-size: 0.65rem; color: var(--dim); text-transform: uppercase; letter-spacing: 1px; }
+
+        select, input[type="number"] { appearance: none; background: #08080a; color: var(--text); font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; border: 1px solid var(--line-grey); padding: 10px; outline: none; width: 100%; text-align: right; border-radius: 2px; }
+        select:disabled { opacity: 0.3; }
+
+        .control-group { margin-bottom: 15px; }
+        .control-label { display: block; font-size: 0.6rem; color: var(--dim); font-weight: 700; text-transform: uppercase; margin-bottom: 8px; letter-spacing: 1px; }
+
+        .flex-row { display: flex; gap: 10px; }
+        .flex-row > * { flex: 1; }
+
+        /* Timeline Slider */
+        .range-container { margin-top: 10px; }
+        .range-slider-wrapper { position: relative; width: 100%; height: 5px; background: var(--line-grey); margin-top: 12px; border-radius: 2px; }
+        .range-slider { position: absolute; width: 100%; pointer-events: none; appearance: none; background: none; outline: none; top: -5px; }
+        .range-slider::-webkit-slider-thumb { pointer-events: auto; appearance: none; width: 14px; height: 14px; border-radius: 50%; background: #fff; cursor: pointer; border: 2px solid var(--bg); position: relative; z-index: 3; }
+        .range-track-highlight { position: absolute; height: 100%; background: #fff; opacity: 0.15; z-index: 1; pointer-events: none; }
+
+        /* Chart */
+        .chart-wrapper { flex: 1; position: relative; width: 100%; min-height: 0; }
+        .copy-btn { position: absolute; top: 30px; right: 60px; background: var(--line-grey); color: var(--dim); border: none; font-family: 'JetBrains Mono', monospace; font-size: 0.65rem; padding: 6px 12px; cursor: pointer; text-transform: uppercase; letter-spacing: 1px; transition: all 0.2s; border-radius: 2px; z-index: 10; }
+        .copy-btn:hover { background: #fff; color: #000; }
+    </style>
+</head>
+<body>
+
+    <div id="loader">Initializing Workspace Architecture...</div>
+
+    <div class="main-grid" id="mainGrid">
+        <div class="chart-cell">
+            <button class="copy-btn" id="copyGraphBtn">Copy Graph</button>
+            <div class="title">Sync Telemetry <span id="chartSubTitle" style="font-size: 0.7rem; color: var(--dim);"></span></div>
+            <div class="chart-wrapper"><canvas id="myChart"></canvas></div>
+        </div>
+
+        <div class="sidebar">
+            
+            <div class="sidebar-section">
+                <div class="title">Dataset Metrics</div>
+                <div class="stats-grid" style="cursor: default; border: none; padding-bottom: 5px;"><span></span><div class="stats-header">MIN</div><div class="stats-header">AVG</div><div class="stats-header">MAX</div></div>
+                
+                <div class="stats-grid metric-row" data-metric="fps"><div class="stats-label"><div class="indicator" id="ind-fps" style="background:var(--c-fps)"></div> AVERAGE FPS</div><div class="stats-val" id="min-fps">-</div><div class="stats-val highlight" id="avg-fps">-</div><div class="stats-val" id="max-fps">-</div></div>
+                <div class="stats-grid metric-row" data-metric="lows"><div class="stats-label"><div class="indicator" id="ind-lows" style="background:var(--c-lows)"></div> 1% LOW FPS</div><div class="stats-val" id="min-lows">-</div><div class="stats-val highlight" id="avg-lows">-</div><div class="stats-val" id="max-lows">-</div></div>
+                <div class="stats-grid metric-row" data-metric="tot"><div class="stats-label"><div class="indicator" id="ind-tot" style="background:var(--c-totlat)"></div> TOTAL LATENCY</div><div class="stats-val" id="min-tot">-</div><div class="stats-val highlight" id="avg-tot">-</div><div class="stats-val" id="max-tot">-</div></div>
+                <div class="stats-grid metric-row" data-metric="peri"><div class="stats-label"><div class="indicator" id="ind-peri" style="background:var(--c-syslat)"></div> PERIPHERAL LAT</div><div class="stats-val" id="min-peri">-</div><div class="stats-val highlight" id="avg-peri">-</div><div class="stats-val" id="max-peri">-</div></div>
+                <div class="stats-grid metric-row" data-metric="disp"><div class="stats-label"><div class="indicator" id="ind-disp" style="background:var(--c-pcdisp)"></div> DISPLAY LATENCY</div><div class="stats-val" id="min-disp">-</div><div class="stats-val highlight" id="avg-disp">-</div><div class="stats-val" id="max-disp">-</div></div>
+                <div class="stats-grid metric-row" data-metric="cpu"><div class="stats-label"><div class="indicator" id="ind-cpu" style="background:var(--c-pclat)"></div> CPU LATENCY</div><div class="stats-val" id="min-cpu">-</div><div class="stats-val highlight" id="avg-cpu">-</div><div class="stats-val" id="max-cpu">-</div></div>
+                <div class="stats-grid metric-row" data-metric="rnd"><div class="stats-label"><div class="indicator" id="ind-rnd" style="background:var(--c-rndlat)"></div> RENDER LATENCY</div><div class="stats-val" id="min-rnd">-</div><div class="stats-val highlight" id="avg-rnd">-</div><div class="stats-val" id="max-rnd">-</div></div>
+            </div>
+
+            <div class="sidebar-section">
+                <div class="title">Data Configuration</div>
+                <label for="csvFile" class="upload-zone" id="dropZone">
+                    <div class="desc">Drag & Drop Log Pairs</div>
+                    <input type="file" id="csvFile" accept=".csv" multiple style="display: none;">
+                </label>
+                <div class="control-group">
+                    <span class="control-label">Active Session</span>
+                    <select id="activeSessionSelect" disabled><option value="">[ NO DATA ]</option></select>
+                </div>
+            </div>
+
+            <div class="sidebar-section">
+                <div class="title">Timeline Settings</div>
+                <div class="range-container">
+                    <div class="control-label" style="display:flex; justify-content: space-between;">
+                        <span>Index Window</span>
+                        <span id="rangeLabel" style="color: #fff;">0.00 - 0.00s</span>
+                    </div>
+                    <div class="range-slider-wrapper">
+                        <div id="rangeTrack" class="range-track-highlight"></div>
+                        <input type="range" id="minRange" class="range-slider" min="0" max="0" value="0">
+                        <input type="range" id="maxRange" class="range-slider" min="0" max="0" value="0">
+                    </div>
+                </div>
+            </div>
+
+            <div class="sidebar-section no-border">
+                <div class="title">Graph Tuning</div>
+                <div class="control-group">
+                    <span class="control-label">Mouse Latency Override (ms)</span>
+                    <input type="number" id="manualMouseLat" value="1.0" step="0.1">
+                </div>
+                <div class="flex-row">
+                    <div class="control-group">
+                        <span class="control-label">Max FPS</span>
+                        <input type="number" id="maxFPSInput" value="600" step="10">
+                    </div>
+                    <div class="control-group">
+                        <span class="control-label">Max Latency</span>
+                        <input type="number" id="maxLatInput" value="30" step="5">
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        const COLORS = { 
+            fps: '#32d74b', lows: '#1d7a2b', rndlat: '#fde047', rndlat_fill: 'rgba(253, 224, 71, 0.15)', 
+            pclat: '#ff9f0a', pclat_fill: 'rgba(255, 159, 10, 0.15)', pcdisp: '#ff375f', 
+            pcdisp_fill: 'rgba(255, 55, 95, 0.15)', syslat: '#bf5af2', syslat_fill: 'rgba(191, 90, 242, 0.15)', totlat: '#ffffff' 
+        };
+
+        const state = {
+            visibility: { fps: true, lows: true, rnd: true, cpu: true, disp: true, peri: true, tot: true },
+            pairedSessions: {}, activeKey: null, chart: null
+        };
+
+        const dom = {
+            minR: document.getElementById('minRange'), maxR: document.getElementById('maxRange'),
+            rTrack: document.getElementById('rangeTrack'), rLabel: document.getElementById('rangeLabel'),
+            fInput: document.getElementById('csvFile'), aSelect: document.getElementById('activeSessionSelect'),
+            mouseInput: document.getElementById('manualMouseLat'), fpsInput: document.getElementById('maxFPSInput'),
+            latInput: document.getElementById('maxLatInput'), copyBtn: document.getElementById('copyGraphBtn')
+        };
+
+        function fmt(n) {
+            if (n === null || isNaN(n)) return "-";
+            return parseFloat(n.toFixed(2)).toString();
+        }
+
+        function getInterpolatedValue(data, time, col, timeCol) {
+            if (!data || !data.length) return null;
+            let left = null, right = null;
+            for (let i = 0; i < data.length; i++) {
+                if (data[i][timeCol] <= time) left = data[i];
+                if (data[i][timeCol] >= time) { right = data[i]; break; }
+            }
+            if (!left && right) return right[col];
+            if (left && !right) return left[col];
+            if (!left && !right) return null;
+            if (Math.abs(left[timeCol] - right[timeCol]) < 0.0001) return left[col];
+            const ratio = (time - left[timeCol]) / (right[timeCol] - left[timeCol]);
+            return left[col] + (right[col] - left[col]) * ratio;
+        }
+
+        async function handleFiles(files) {
+            const list = Array.from(files).filter(f => f.name.endsWith('.csv'));
+            const parsePromises = list.map(f => new Promise(res => {
+                Papa.parse(f, { header: true, dynamicTyping: true, skipEmptyLines: true, 
+                    transform: v => (v === "N/A" || v === "No Flash Detected" ? null : v),
+                    complete: r => res({ name: f.name, data: r.data, cols: Object.keys(r.data[0]) }) 
+                });
+            }));
+            const rawDatasets = await Promise.all(parsePromises);
+            let groups = {};
+            rawDatasets.forEach(d => {
+                const match = d.name.match(/_(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})\.csv$/i);
+                if (!match) return;
+                const ts = match[1]; if (!groups[ts]) groups[ts] = {};
+                if (d.name.toLowerCase().includes('latency')) groups[ts].lat = d;
+                else if (d.name.toLowerCase().includes('performance')) groups[ts].perf = d;
+            });
+
+            state.pairedSessions = {}; dom.aSelect.innerHTML = '';
+            Object.keys(groups).forEach(ts => {
+                const session = groups[ts];
+                if (session.lat && session.perf) {
+                    const pData = session.perf.data, lData = session.lat.data;
+                    const tP = session.perf.cols[0], tL = session.lat.cols[0];
+                    const colPC = session.perf.cols.find(c => c.toLowerCase().includes('pc latency'));
+                    const colPCD = session.lat.cols.find(c => c.toLowerCase().includes('pc + display'));
+                    const uniqueTimeMap = new Map();
+                    lData.forEach(row => {
+                        const t = row[tL];
+                        if (t === null || uniqueTimeMap.has(t)) return;
+                        const baselinePC = getInterpolatedValue(pData, t, colPC, tP);
+                        if (row[colPCD] !== null && baselinePC !== null && row[colPCD] >= baselinePC && 
+                            t >= pData[0][tP] && t <= pData[pData.length-1][tP]) {
+                            row._jitter = (Math.random() - 0.5);
+                            uniqueTimeMap.set(t, row);
+                        }
+                    });
+                    session.cleanLat = Array.from(uniqueTimeMap.values()).sort((a,b) => a[tL] - b[tL]);
+                    if (session.cleanLat.length > 5) {
+                        state.pairedSessions[ts] = session; 
+                        dom.aSelect.add(new Option(`SESSION: ${ts}`, ts));
+                    }
+                }
+            });
+            if (Object.keys(state.pairedSessions).length) {
+                state.activeKey = Object.keys(state.pairedSessions)[0];
+                dom.aSelect.disabled = false; renderChart();
+            }
+        }
+
+        function updateStats(id, arr) {
+            const v = arr.filter(n => n != null && !isNaN(n));
+            const targets = ['min', 'avg', 'max'].map(t => document.getElementById(`${t}-${id}`));
+            if (!v.length) { targets.forEach(el => el.textContent = "-"); return; }
+            targets[0].textContent = fmt(Math.min(...v));
+            targets[1].textContent = fmt(v.reduce((a, b) => a + b, 0) / v.length);
+            targets[2].textContent = fmt(Math.max(...v));
+        }
+
+        function renderChart() {
+            if (!state.activeKey) return;
+            const session = state.pairedSessions[state.activeKey];
+            const lData = session.cleanLat, pData = session.perf.data;
+            const tL = session.lat.cols[0], tP = session.perf.cols[0];
+            if (dom.minR.max != lData.length - 1) {
+                dom.minR.max = lData.length - 1; dom.maxR.max = lData.length - 1;
+                dom.minR.value = 0; dom.maxR.value = lData.length - 1;
+            }
+            const startIdx = parseInt(dom.minR.value), endIdx = parseInt(dom.maxR.value);
+            const mMin = lData[startIdx][tL], mMax = lData[endIdx][tL];
+            dom.rLabel.textContent = `${fmt(mMin)} - ${fmt(mMax)}s`;
+
+            const colFPS = session.perf.cols.find(c => c.toLowerCase().includes('fps')),
+                  colLow = session.perf.cols.find(c => c.toLowerCase().includes('1(%) low')),
+                  colRnd = session.perf.cols.find(c => c.toLowerCase().includes('render latency')),
+                  colPC = session.perf.cols.find(c => c.toLowerCase().includes('pc latency')),
+                  colPCD = session.lat.cols.find(c => c.toLowerCase().includes('pc + display'));
+
+            const prepPerf = col => {
+                if (!col) return [];
+                let d = pData.filter(r => r[tP] > mMin && r[tP] < mMax).map(r => ({ x: r[tP], y: r[col] }));
+                d.unshift({ x: mMin, y: getInterpolatedValue(pData, mMin, col, tP) });
+                d.push({ x: mMax, y: getInterpolatedValue(pData, mMax, col, tP) });
+                return d.sort((a,b) => a.x - b.x);
+            };
+
+            const datasets = [];
+            const activeFPS = prepPerf(colFPS), activeLow = prepPerf(colLow), activeRnd = prepPerf(colRnd), activePC = prepPerf(colPC);
+            if (state.visibility.fps) datasets.push({ label: "AVERAGE FPS", data: activeFPS, yAxisID: 'yL', borderColor: COLORS.fps, borderWidth: 2, pointRadius: 0 });
+            if (state.visibility.lows) datasets.push({ label: "1% LOW FPS", data: activeLow, yAxisID: 'yL', borderColor: COLORS.lows, borderWidth: 2, pointRadius: 0 });
+            let lastIdx = null;
+            if (state.visibility.rnd) { datasets.push({ label: "RENDER LATENCY", data: activeRnd, yAxisID: 'yR', borderColor: COLORS.rndlat, backgroundColor: COLORS.rndlat_fill, fill: 'origin', borderWidth: 1.5, pointRadius: 0 }); lastIdx = datasets.length - 1; }
+            if (state.visibility.cpu) { datasets.push({ label: "CPU LATENCY", data: activePC, yAxisID: 'yR', borderColor: COLORS.pclat, backgroundColor: COLORS.pclat_fill, fill: lastIdx !== null ? lastIdx : 'origin', borderWidth: 1.5, pointRadius: 0 }); lastIdx = datasets.length - 1; }
+
+            const valPCD = [], valTot = [], mouseBase = parseFloat(dom.mouseInput.value) || 0;
+            lData.slice(startIdx, endIdx + 1).forEach(r => {
+                const colSys = session.lat.cols.find(c => c.toLowerCase().includes('system latency'));
+                const isN = (colSys && r[colSys] && r[session.lat.cols.find(c=>c.toLowerCase().includes('mouse'))] > 0);
+                valPCD.push({ x: r[tL], y: r[colPCD] });
+                valTot.push({ x: r[tL], y: isN ? r[colSys] : (r[colPCD] + mouseBase + (mouseBase * r._jitter)) });
+            });
+            if (state.visibility.disp) { datasets.push({ label: "DISPLAY LATENCY", data: valPCD, yAxisID: 'yR', borderColor: COLORS.pcdisp, backgroundColor: COLORS.pcdisp_fill, fill: lastIdx !== null ? lastIdx : 'origin', borderWidth: 1.5, pointRadius: 0 }); lastIdx = datasets.length - 1; }
+            if (state.visibility.peri) { datasets.push({ label: "PERIPHERAL LATENCY", data: valTot, yAxisID: 'yR', borderColor: COLORS.syslat, backgroundColor: COLORS.syslat_fill, fill: lastIdx !== null ? lastIdx : 'origin', borderWidth: 1.5, pointRadius: 0 }); }
+            if (state.visibility.tot) { datasets.push({ label: "TOTAL LATENCY", data: valTot, yAxisID: 'yR', borderColor: COLORS.totlat, borderWidth: 3, pointRadius: 0, fill: false }); }
+
+            updateStats('fps', activeFPS.map(d => d.y)); updateStats('lows', activeLow.map(d => d.y));
+            updateStats('rnd', activeRnd.map(d => d.y)); updateStats('cpu', activePC.map((d, i) => d.y - activeRnd[i].y));
+            updateStats('disp', valPCD.map(d => d.y - getInterpolatedValue(pData, d.x, colPC, tP)));
+            updateStats('peri', valTot.map((d, i) => d.y - valPCD[i].y)); updateStats('tot', valTot.map(d => d.y));
+
+            const ctx = document.getElementById('myChart').getContext('2d');
+            if (state.chart) state.chart.destroy();
+            const fM = parseFloat(dom.fpsInput.value), lM = parseFloat(dom.latInput.value);
+            const dpr = window.devicePixelRatio || 2;
+            ctx.canvas.width = ctx.canvas.parentElement.clientWidth * dpr;
+            ctx.canvas.height = ctx.canvas.parentElement.clientHeight * dpr;
+
+            state.chart = new Chart(ctx, {
+                type: 'line', data: { datasets },
+                options: {
+                    devicePixelRatio: dpr, responsive: true, maintainAspectRatio: false, animation: false,
+                    layout: { padding: { left: 80, right: 80, top: 40, bottom: 20 } },
+                    interaction: { mode: 'nearest', axis: 'x', intersect: false },
+                    plugins: { 
+                        legend: { display: true, position: 'top', align: 'center', labels: { color: '#888', font: { family: "'JetBrains Mono'", size: 11, weight: '700' }, boxWidth: 12, padding: 30 } },
+                        tooltip: { backgroundColor: '#050505', titleFont: { family: "'JetBrains Mono'" }, callbacks: { label: (c) => `${c.dataset.label}: ${fmt(c.raw.y)}` } } 
+                    },
+                    scales: {
+                        x: { type: 'linear', min: mMin, max: mMax, ticks: { color: '#444', font: { family: "'JetBrains Mono'", size: 10 }, callback: v => fmt(v) }, title: { display: true, text: 'TIME (S)', color: '#666', font: { family: "'JetBrains Mono'", weight: 'bold' } }, grid: { color: '#1a1a20' }, offset: false },
+                        yL: { type: 'linear', position: 'left', min: 0, max: fM, ticks: { stepSize: fM/6, color: '#888', font: { family: "'JetBrains Mono'", size: 10 }, callback: v => fmt(v) }, title: { display: true, text: 'FPS', color: '#666', font: { family: "'JetBrains Mono'", weight: 'bold' } }, border: { display: false }, grid: { color: '#1a1a20' }, afterFit: (s) => { s.width = 60; } },
+                        yR: { type: 'linear', position: 'right', min: 0, max: lM, ticks: { stepSize: lM/6, color: '#888', font: { family: "'JetBrains Mono'", size: 10 }, callback: v => fmt(v) }, title: { display: true, text: 'LATENCY (MS)', color: '#666', font: { family: "'JetBrains Mono'", weight: 'bold' } }, border: { display: false }, grid: { drawOnChartArea: false }, afterFit: (s) => { s.width = 60; } }
+                    }
+                }
+            });
+        }
+
+        dom.copyBtn.addEventListener('click', async () => {
+            const canvas = document.getElementById('myChart');
+            const dpr = 3; 
+            const exportCanvas = document.createElement('canvas');
+            exportCanvas.width = canvas.parentElement.clientWidth * dpr;
+            exportCanvas.height = canvas.parentElement.clientHeight * dpr;
+            const exCtx = exportCanvas.getContext('2d');
+            exCtx.fillStyle = '#08080a';
+            exCtx.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
+            const tempChart = new Chart(exCtx, {
+                type: 'line', data: state.chart.data,
+                options: { ...state.chart.options, devicePixelRatio: dpr, animation: false }
+            });
+            setTimeout(() => {
+                exportCanvas.toBlob(async (blob) => {
+                    if (!blob) return;
+                    try {
+                        const item = new ClipboardItem({ "image/png": blob });
+                        await navigator.clipboard.write([item]);
+                        const orig = dom.copyBtn.innerText; dom.copyBtn.innerText = "COPIED!"; dom.copyBtn.style.color = "#32d74b";
+                        setTimeout(() => { dom.copyBtn.innerText = orig; dom.copyBtn.style.color = ""; }, 2000);
+                    } catch (err) {
+                        const link = document.createElement('a');
+                        link.download = 'nvidia-sync-export.png';
+                        link.href = exportCanvas.toDataURL("image/png");
+                        link.click();
+                    } finally { tempChart.destroy(); }
+                }, "image/png");
+            }, 200);
+        });
+
+        window.addEventListener('load', () => setTimeout(() => document.body.classList.add('loaded'), 500));
+        [dom.minR, dom.maxR].forEach(r => r.addEventListener('input', () => {
+            const min = parseInt(dom.minR.value), max = parseInt(dom.maxR.value), tot = parseInt(dom.minR.max);
+            if (min >= max) dom.minR.value = max - 1;
+            dom.rTrack.style.left = (tot > 0 ? (dom.minR.value / tot * 100) : 0) + "%";
+            dom.rTrack.style.width = (tot > 0 ? ((dom.maxR.value - dom.minR.value) / tot * 100) : 100) + "%";
+            renderChart();
+        }));
+        [dom.mouseInput, dom.fpsInput, dom.latInput].forEach(i => i.addEventListener('input', renderChart));
+        dom.fInput.addEventListener('change', e => { handleFiles(e.target.files); e.target.value = ''; });
+        dom.aSelect.addEventListener('change', e => { state.activeKey = e.target.value; renderChart(); });
+        document.querySelectorAll('.metric-row').forEach(row => { row.addEventListener('click', () => { const m = row.dataset.metric; state.visibility[m] = !state.visibility[m]; document.getElementById(`ind-${m}`).classList.toggle('off', !state.visibility[m]); row.classList.toggle('disabled', !state.visibility[m]); renderChart(); }); });
+    </script>
+</body>
+</html>
