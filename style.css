@@ -89,7 +89,6 @@ select:focus-visible { border-color: var(--accent); }
 /* Remove Browser Number Spinners */
 input[type="number"]::-webkit-inner-spin-button, 
 input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
-input[type="number"] { -moz-appearance: textfield; }
 
 /* Custom Integrated Number Spinners */
 .number-input-wrapper { display: flex; align-items: center; border: 1px solid var(--line-grey); background: transparent; transition: border-color 0.2s; height: 40px; }
