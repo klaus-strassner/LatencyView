@@ -138,9 +138,10 @@
                         <div class="custom-select-display" id="customSelectDisplay">Awaiting Data...</div>
                         <div class="custom-select-options" id="customSelectOptions"></div>
                     </div>
+                    <button type="button" class="action-btn disabled" id="compareBtn" style="margin-top: 15px;">Compare All Sessions</button>
                 </div>
                 
-                <div class="control-group" style="margin-top: 25px;">
+                <div class="control-group" style="margin-top: 25px;" id="mouseInputGroup">
                     <span class="control-label">Mouse Latency (ms)</span>
                     <div class="number-input-wrapper">
                         <button type="button" class="num-btn minus" data-target="manualMouseLat">−</button>
@@ -150,7 +151,7 @@
                     <div id="mouseStatus" class="input-note"></div>
                 </div>
 
-                <div class="control-group" style="margin-top: 35px;">
+                <div class="control-group" style="margin-top: 35px;" id="timespanGroup">
                     <div class="control-label" style="display:flex; justify-content: space-between;">
                         <span>Timespan</span>
                         <span id="rangeLabel" style="color: var(--dim); font-weight: 400;">0.00 - 0.00s</span>

@@ -1,6 +1,7 @@
 document.addEventListener('DOMContentLoaded', () => {
     // --- Application State ---
     const state = {
+        viewMode: 'single', // 'single' or 'compare'
         visibility: { fps: true, lows: true, rnd: false, cpu: false, disp: false, peri: false, tot: true },
         pairedSessions: {}, 
         activeKey: null, 
@@ -22,7 +23,10 @@ document.addEventListener('DOMContentLoaded', () => {
         homeBtn: document.getElementById('homeBtn'),
         csWrap: document.getElementById('customSelectWrapper'),
         csDisp: document.getElementById('customSelectDisplay'),
-        csOpts: document.getElementById('customSelectOptions')
+        csOpts: document.getElementById('customSelectOptions'),
+        compareBtn: document.getElementById('compareBtn'),
+        timespanGroup: document.getElementById('timespanGroup'),
+        mouseGroup: document.getElementById('mouseInputGroup')
     };
 
     // --- Custom Dropdown Controller ---
@@ -39,10 +43,17 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!optionsList || optionsList.length === 0) {
             dom.csDisp.textContent = "Awaiting Data...";
             dom.csWrap.classList.add('disabled');
+            dom.compareBtn.classList.add('disabled');
         } else {
             dom.csDisp.textContent = state.activeKey;
             dom.csWrap.classList.remove('disabled');
             
+            if (optionsList.length > 1) {
+                dom.compareBtn.classList.remove('disabled');
+            } else {
+                dom.compareBtn.classList.add('disabled');
+            }
+
             optionsList.forEach(ts => {
                 const opt = document.createElement('div');
                 opt.className = 'custom-option' + (ts === state.activeKey ? ' selected' : '');
@@ -62,11 +73,39 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // --- Mode Switching ---
+    dom.compareBtn.addEventListener('click', () => {
+        if (Object.keys(state.pairedSessions).length < 2) return;
+        
+        if (state.viewMode === 'single') {
+            state.viewMode = 'compare';
+            dom.compareBtn.classList.add('active');
+            dom.compareBtn.textContent = 'Exit Compare Mode';
+            dom.csWrap.classList.add('ui-disabled');
+            dom.csDisp.textContent = "COMPARING SESSIONS";
+            dom.timespanGroup.classList.add('ui-disabled');
+        } else {
+            state.viewMode = 'single';
+            dom.compareBtn.classList.remove('active');
+            dom.compareBtn.textContent = 'Compare All Sessions';
+            dom.csWrap.classList.remove('ui-disabled');
+            dom.csDisp.textContent = state.activeKey;
+            dom.timespanGroup.classList.remove('ui-disabled');
+        }
+        renderChart();
+    });
+
     // --- State Management / Routing ---
     function resetToGuide() {
         document.body.classList.remove('has-data');
         state.activeKey = null;
         state.pairedSessions = {};
+        state.viewMode = 'single';
+        dom.compareBtn.classList.remove('active');
+        dom.compareBtn.textContent = 'Compare All Sessions';
+        dom.timespanGroup.classList.remove('ui-disabled');
+        dom.csWrap.classList.remove('ui-disabled');
+        
         buildCustomSelect([]);
         if (state.chart) {
             state.chart.destroy();
@@ -97,12 +136,8 @@ document.addEventListener('DOMContentLoaded', () => {
     function debounce(func, wait) {
         let timeout;
         return function executedFunction(...args) {
-            const later = () => {
-                clearTimeout(timeout);
-                func(...args);
-            };
-            clearTimeout(timeout);
-            timeout = setTimeout(later, wait);
+            const later = () => { clearTimeout(timeout); func(...args); };
+            clearTimeout(timeout); timeout = setTimeout(later, wait);
         };
     }
 
@@ -127,14 +162,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Core Logic ---
     async function handleFiles(files) {
         const list = Array.from(files).filter(f => f.name.endsWith('.csv'));
-        
         const parsePromises = list.map(f => new Promise(res => {
-            Papa.parse(f, { 
-                header: true, 
-                dynamicTyping: true, 
-                skipEmptyLines: true, 
-                complete: r => res({ name: f.name, data: r.data, cols: Object.keys(r.data[0]) }) 
-            });
+            Papa.parse(f, { header: true, dynamicTyping: true, skipEmptyLines: true, complete: r => res({ name: f.name, data: r.data, cols: Object.keys(r.data[0]) }) });
         }));
         
         const raw = await Promise.all(parsePromises);
@@ -170,7 +199,6 @@ document.addEventListener('DOMContentLoaded', () => {
                         if (!uniqueTimeMap.has(t)) uniqueTimeMap.set(t, row);
                     }
                 });
-                
                 session.cleanLat = Array.from(uniqueTimeMap.values()).sort((a,b) => a[tL] - b[tL]);
                 state.pairedSessions[ts] = session; 
             }
@@ -182,15 +210,164 @@ document.addEventListener('DOMContentLoaded', () => {
             buildCustomSelect(sessionKeys);
             
             document.body.classList.add('has-data');
-            if (window.location.hash !== '#workspace') {
-                history.pushState({ view: 'workspace' }, '', '#workspace');
-            }
-            
+            if (window.location.hash !== '#workspace') history.pushState({ view: 'workspace' }, '', '#workspace');
             renderChart(); 
         }
     }
 
     function renderChart() {
+        if (state.viewMode === 'compare') {
+            renderCompareChart();
+        } else {
+            renderSingleChart();
+        }
+    }
+
+    function renderCompareChart() {
+        const labels = Object.keys(state.pairedSessions);
+        
+        const avgData = labels.map(ts => {
+            const session = state.pairedSessions[ts];
+            const lData = session.cleanLat, pData = session.perf.data;
+            const colFPS = session.perf.cols.find(c => c.toLowerCase().includes('fps')),
+                  colLow = session.perf.cols.find(c => c.toLowerCase().includes('1(%) low')),
+                  colRnd = session.perf.cols.find(c => c.toLowerCase().includes('render latency')),
+                  colPC = session.perf.cols.find(c => c.toLowerCase().includes('pc latency')),
+                  colPCD = session.lat.cols.find(c => c.toLowerCase().includes('pc + display'));
+            const colSys = session.lat.cols.find(c => c.toLowerCase().includes('system latency'));
+            const colMouse = session.lat.cols.find(c => c.toLowerCase().includes('mouse'));
+            
+            let sumFPS = 0, sumLow = 0, sumRnd = 0, sumPC = 0;
+            pData.forEach(r => { sumFPS += r[colFPS] || 0; sumLow += r[colLow] || 0; sumRnd += r[colRnd] || 0; sumPC += r[colPC] || 0; });
+            const avgFPS = sumFPS / pData.length, avgLow = sumLow / pData.length, avgRnd = sumRnd / pData.length, avgPC = sumPC / pData.length;
+
+            let sumPCD = 0, sumTot = 0;
+            const mBase = parseFloat(dom.mouseInput.value) || 0;
+            lData.forEach(r => {
+                sumPCD += r[colPCD] || 0;
+                const isRealMouse = (colSys && r[colSys] && r[colMouse] > 0);
+                sumTot += isRealMouse ? r[colSys] : (r[colPCD] + mBase + (mBase * r._jitter));
+            });
+            const avgPCD = sumPCD / lData.length, avgTot = sumTot / lData.length;
+
+            return { fps: avgFPS, lows: avgLow, rnd: avgRnd, cpu: avgPC - avgRnd, disp: avgPCD - avgPC, peri: avgTot - avgPCD, tot: avgTot };
+        });
+
+        const datasets = [];
+        const pushBar = (id, label, stack, xAxisID, color) => {
+            if (!state.visibility[id]) return;
+            datasets.push({
+                _isToggled: true, label: label, data: avgData.map(d => d[id]), backgroundColor: color,
+                stack: stack, xAxisID: xAxisID, barPercentage: 0.8, categoryPercentage: 0.8
+            });
+        };
+
+        const hasSubLats = state.visibility.rnd || state.visibility.cpu || state.visibility.disp || state.visibility.peri;
+
+        // Grouped Performance Metrics
+        pushBar('fps', 'AVERAGE FPS', 'fps', 'xTop', '#10b981');
+        pushBar('lows', '1% LOW FPS', 'lows', 'xTop', '#059669');
+
+        // Stacked Latency Pipeline logic
+        if (hasSubLats) {
+            pushBar('peri', 'PERIPHERAL LATENCY', 'lat', 'xBottom', '#d4d4d8');
+            pushBar('disp', 'DISPLAY LATENCY', 'lat', 'xBottom', '#a1a1aa');
+            pushBar('cpu', 'COMPUTE LATENCY', 'lat', 'xBottom', '#71717a');
+            pushBar('rnd', 'RENDER LATENCY', 'lat', 'xBottom', '#52525b');
+        } else if (state.visibility.tot) {
+            // Draw standalone total block if no sub-measurements are active
+            pushBar('tot', 'TOTAL LATENCY', 'lat', 'xBottom', '#ffffff');
+        }
+
+        const ctx = document.getElementById('myChart').getContext('2d');
+        if (state.chart) state.chart.destroy();
+        const fM = parseFloat(dom.fpsInput.value), lM = parseFloat(dom.latInput.value);
+
+        // Native Data-Label Rendering Engine
+        const inlineDataLabels = {
+            id: 'inlineDataLabels',
+            afterDatasetsDraw(chart) {
+                const ctx = chart.ctx;
+                ctx.save();
+                ctx.font = "500 10px 'JetBrains Mono'";
+                ctx.textBaseline = 'middle';
+
+                const latStackSums = new Array(chart.data.labels.length).fill(0);
+                const latStackEdges = new Array(chart.data.labels.length).fill(0);
+                const latStackYs = new Array(chart.data.labels.length).fill(0);
+
+                chart.data.datasets.forEach((dataset, i) => {
+                    const meta = chart.getDatasetMeta(i);
+                    if (!meta.hidden && dataset._isToggled) {
+                        const isLatStack = dataset.stack === 'lat';
+
+                        meta.data.forEach((el, index) => {
+                            const val = dataset.data[index];
+                            if (val !== null && val > 0) {
+                                // Draw text securely inside the block on the very left
+                                if (el.width && el.width > 24) {
+                                    const c = dataset.backgroundColor;
+                                    ctx.fillStyle = (c === '#a1a1aa' || c === '#d4d4d8' || c === '#10b981' || c === '#ffffff') ? '#050505' : '#ffffff';
+                                    ctx.textAlign = 'left';
+                                    ctx.fillText(fmt(val), el.base + 8, el.y);
+                                }
+                                
+                                // Track stack edge values for the latency bar sum
+                                if (isLatStack) {
+                                    latStackSums[index] += val;
+                                    if (el.x > latStackEdges[index]) latStackEdges[index] = el.x;
+                                    latStackYs[index] = el.y;
+                                }
+                            }
+                        });
+                    }
+                });
+
+                // Shift sum outside the block to the right ONLY if sub-components populate it
+                if (hasSubLats) {
+                    ctx.fillStyle = '#a1a1aa';
+                    ctx.textAlign = 'left';
+                    latStackEdges.forEach((edgeX, index) => {
+                        if (latStackSums[index] > 0) {
+                            ctx.fillText(fmt(latStackSums[index]), edgeX + 8, latStackYs[index]);
+                        }
+                    });
+                }
+
+                ctx.restore();
+            }
+        };
+
+        state.chart = new Chart(ctx, {
+            type: 'bar', data: { labels, datasets },
+            options: {
+                indexAxis: 'y', devicePixelRatio: Math.max(window.devicePixelRatio || 1, 4), 
+                responsive: true, maintainAspectRatio: false, animation: { duration: 400, easing: 'easeOutQuart' },
+                interaction: { mode: 'y', intersect: false },
+                layout: { padding: { left: 50, right: 50, top: 50, bottom: 20 } },
+                plugins: { 
+                    legend: { display: true, position: 'top', align: 'center', labels: { color: '#a1a1aa', font: { family: "'JetBrains Mono'", size: 10, weight: '400' }, boxWidth: 10, padding: 35 } },
+                    tooltip: { backgroundColor: '#0a0a0c', titleFont: { family: "'JetBrains Mono'", size: 11, weight: '500' }, bodyFont: { family: "'JetBrains Mono'", size: 10, weight: '400' }, titleColor: '#ffffff', bodyColor: '#a1a1aa', cornerRadius: 0, borderColor: '#27272a', borderWidth: 1, padding: 16, boxPadding: 6, callbacks: { label: c => `${c.dataset.label}: ${fmt(c.raw)}` } } 
+                },
+                scales: {
+                    y: { stacked: true, ticks: { color: '#71717a', font: { family: "'JetBrains Mono'", size: 10 } }, grid: { display: false } },
+                    xBottom: { type: 'linear', position: 'bottom', stacked: true, min: 0, max: lM, ticks: { color: '#71717a', font: { size: 10 }, callback: v => fmt(v) }, title: { display: true, text: 'LATENCY (ms)', color: '#71717a', font: { weight: '500', size: 10, letterSpacing: 2 }, padding: { top: 20 } }, grid: { color: 'rgba(255, 255, 255, 0.05)' } },
+                    xTop: { type: 'linear', position: 'top', stacked: true, min: 0, max: fM, ticks: { color: '#71717a', font: { size: 10 }, callback: v => fmt(v) }, title: { display: true, text: 'FPS', color: '#71717a', font: { weight: '500', size: 10, letterSpacing: 2 }, padding: { bottom: 20 } }, grid: { drawOnChartArea: false } }
+                }
+            },
+            plugins: [inlineDataLabels]
+        });
+
+        // Blank out single-session metrics
+        ['fps', 'lows', 'tot', 'peri', 'disp', 'cpu', 'rnd'].forEach(id => {
+            ['min', 'avg', 'max'].forEach(t => {
+                const el = document.getElementById(`${t}-${id}`);
+                if(el) el.textContent = "-";
+            });
+        });
+    }
+
+    function renderSingleChart() {
         if (!state.activeKey) return;
         const session = state.pairedSessions[state.activeKey];
         const lData = session.cleanLat, pData = session.perf.data;
@@ -206,10 +383,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if (dom.minR.max != lData.length - 1) {
-            dom.minR.max = lData.length - 1; 
-            dom.maxR.max = lData.length - 1;
-            dom.minR.value = 0; 
-            dom.maxR.value = lData.length - 1;
+            dom.minR.max = lData.length - 1; dom.maxR.max = lData.length - 1;
+            dom.minR.value = 0; dom.maxR.value = lData.length - 1;
         }
 
         const startIdx = parseInt(dom.minR.value), endIdx = parseInt(dom.maxR.value);
@@ -242,11 +417,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const datasets = [];
 
-        // Independent FPS Metric Layers
         if (state.visibility.fps) datasets.push({ _isToggled: true, label: "AVERAGE FPS", data: activeFPS, yAxisID: 'yL', borderColor: '#10b981', borderWidth: 1, pointRadius: 0, tension: 0 });
         if (state.visibility.lows) datasets.push({ _isToggled: true, label: "1% LOW FPS", data: activeLow, yAxisID: 'yL', borderColor: '#059669', borderWidth: 1, pointRadius: 0, tension: 0 });
 
-        // Latency Area Stack - Structurally absolute, dynamically bordered
         const activeLatencyLayers = [
             { id: 'rnd', label: "RENDER LATENCY", data: activeRnd, color: '#52525b', bg: 'rgba(82, 82, 91, 0.15)' },
             { id: 'cpu', label: "COMPUTE LATENCY", data: activePC, color: '#71717a', bg: 'rgba(113, 113, 122, 0.15)' },
@@ -257,51 +430,21 @@ document.addEventListener('DOMContentLoaded', () => {
         let prevIdx = 'origin';
         activeLatencyLayers.forEach((layer, index) => {
             const isVis = state.visibility[layer.id];
-            
-            // Look ahead to check if the layer immediately ABOVE this one is visible
             const nextLayer = activeLatencyLayers[index + 1];
             const isNextVis = nextLayer ? state.visibility[nextLayer.id] : false;
-            
-            // If the current layer is hidden, but the layer filling down to it is visible, 
-            // it acts as a "naked floor". We project a subtle boundary line.
             const isNakedFloor = !isVis && isNextVis;
-
             let strokeColor = 'transparent';
-            if (isVis) {
-                strokeColor = layer.color;
-            } else if (isNakedFloor) {
-                strokeColor = 'rgba(255, 255, 255, 0.15)'; // Very fine structural line
-            }
+            if (isVis) strokeColor = layer.color;
+            else if (isNakedFloor) strokeColor = 'rgba(255, 255, 255, 0.15)';
 
             datasets.push({
-                _isToggled: isVis, // Custom flag to control tooltip and legend visibility
-                label: layer.label,
-                data: layer.data,
-                yAxisID: 'yR',
-                borderColor: strokeColor,
-                backgroundColor: isVis ? layer.bg : 'transparent',
-                fill: prevIdx,
-                borderWidth: 1,
-                pointRadius: 0,
-                tension: 0
+                _isToggled: isVis, label: layer.label, data: layer.data, yAxisID: 'yR',
+                borderColor: strokeColor, backgroundColor: isVis ? layer.bg : 'transparent', fill: prevIdx, borderWidth: 1, pointRadius: 0, tension: 0
             });
-            prevIdx = datasets.length - 1; // Current index always acts as the structural floor for the next
+            prevIdx = datasets.length - 1;
         });
 
-        // Top cap marker for Total System Latency
-        if (state.visibility.tot) { 
-            datasets.push({ 
-                _isToggled: true,
-                label: "TOTAL LATENCY", 
-                data: valTot, 
-                yAxisID: 'yR', 
-                borderColor: '#ffffff', 
-                borderWidth: 1, 
-                pointRadius: 0, 
-                fill: false, 
-                tension: 0 
-            }); 
-        }
+        if (state.visibility.tot) datasets.push({ _isToggled: true, label: "TOTAL LATENCY", data: valTot, yAxisID: 'yR', borderColor: '#ffffff', borderWidth: 1, pointRadius: 0, fill: false, tension: 0 }); 
 
         const updateSidebarMetrics = (id, arr) => {
             const els = ['min', 'avg', 'max'].map(t => document.getElementById(`${t}-${id}`));
@@ -311,60 +454,23 @@ document.addEventListener('DOMContentLoaded', () => {
             els[2].textContent = fmt(Math.max(...arr));
         };
 
-        updateSidebarMetrics('fps', activeFPS.map(d=>d.y)); 
-        updateSidebarMetrics('lows', activeLow.map(d=>d.y));
-        updateSidebarMetrics('rnd', activeRnd.map(d=>d.y)); 
-        updateSidebarMetrics('cpu', activePC.map((d,i)=>d.y - (activeRnd[i]?activeRnd[i].y:0)));
+        updateSidebarMetrics('fps', activeFPS.map(d=>d.y)); updateSidebarMetrics('lows', activeLow.map(d=>d.y));
+        updateSidebarMetrics('rnd', activeRnd.map(d=>d.y)); updateSidebarMetrics('cpu', activePC.map((d,i)=>d.y - (activeRnd[i]?activeRnd[i].y:0)));
         updateSidebarMetrics('disp', valPCD.map(d=>d.y - getInterpolatedValue(pData, d.x, colPC, tP)));
-        updateSidebarMetrics('peri', valTot.map((d,i)=>d.y - (valPCD[i]?valPCD[i].y:0))); 
-        updateSidebarMetrics('tot', valTot.map(d=>d.y));
+        updateSidebarMetrics('peri', valTot.map((d,i)=>d.y - (valPCD[i]?valPCD[i].y:0))); updateSidebarMetrics('tot', valTot.map(d=>d.y));
 
         const ctx = document.getElementById('myChart').getContext('2d');
         if (state.chart) state.chart.destroy();
-        
         const fM = parseFloat(dom.fpsInput.value), lM = parseFloat(dom.latInput.value);
 
         state.chart = new Chart(ctx, {
-            type: 'line', 
-            data: { datasets },
+            type: 'line', data: { datasets },
             options: {
-                devicePixelRatio: Math.max(window.devicePixelRatio || 1, 4), 
-                responsive: true, 
-                maintainAspectRatio: false, 
-                animation: false,
-                interaction: {
-                    mode: 'index',
-                    intersect: false,
-                },
+                devicePixelRatio: Math.max(window.devicePixelRatio || 1, 4), responsive: true, maintainAspectRatio: false, animation: false, interaction: { mode: 'index', intersect: false },
                 layout: { padding: { left: 50, right: 50, top: 50, bottom: 20 } },
                 plugins: { 
-                    legend: { 
-                        display: true, 
-                        position: 'top', 
-                        align: 'center', 
-                        labels: { 
-                            color: '#a1a1aa', 
-                            font: { family: "'JetBrains Mono'", size: 10, weight: '400' }, 
-                            boxWidth: 10, 
-                            padding: 35,
-                            filter: (item, chart) => chart.datasets[item.datasetIndex]._isToggled // Hide structural layers
-                        } 
-                    },
-                    tooltip: { 
-                        backgroundColor: '#0a0a0c', 
-                        titleFont: { family: "'JetBrains Mono'", size: 11, weight: '500' }, 
-                        bodyFont: { family: "'JetBrains Mono'", size: 10, weight: '400' },
-                        titleColor: '#ffffff',
-                        bodyColor: '#a1a1aa',
-                        cornerRadius: 0,
-                        borderColor: '#27272a', 
-                        borderWidth: 1,
-                        padding: 16,
-                        boxPadding: 6,
-                        itemSort: (a, b) => b.raw.y - a.raw.y,
-                        filter: (item) => item.dataset._isToggled, // Prevent phantom data readouts
-                        callbacks: { label: c => `${c.dataset.label}: ${fmt(c.raw.y)}` } 
-                    } 
+                    legend: { display: true, position: 'top', align: 'center', labels: { color: '#a1a1aa', font: { family: "'JetBrains Mono'", size: 10, weight: '400' }, boxWidth: 10, padding: 35, filter: (item, chart) => chart.datasets[item.datasetIndex]._isToggled } },
+                    tooltip: { backgroundColor: '#0a0a0c', titleFont: { family: "'JetBrains Mono'", size: 11, weight: '500' }, bodyFont: { family: "'JetBrains Mono'", size: 10, weight: '400' }, titleColor: '#ffffff', bodyColor: '#a1a1aa', cornerRadius: 0, borderColor: '#27272a', borderWidth: 1, padding: 16, boxPadding: 6, itemSort: (a, b) => b.raw.y - a.raw.y, filter: (item) => item.dataset._isToggled, callbacks: { label: c => `${c.dataset.label}: ${fmt(c.raw.y)}` } } 
                 },
                 scales: {
                     x: { type: 'linear', min: mMin, max: mMax, ticks: { color: '#71717a', font: { size: 10 }, callback: v => fmt(v) }, title: { display: true, text: 'TIME (s)', color: '#71717a', font: { weight: '500', size: 10, letterSpacing: 2 }, padding: { top: 20 } }, grid: { color: 'rgba(255, 255, 255, 0.05)' } },
@@ -402,39 +508,21 @@ document.addEventListener('DOMContentLoaded', () => {
             const originalText = e.target.innerText;
             e.target.innerText = "LOADING...";
             
-            const timestamps = [
-                '2026-03-24T04-53-39',
-                '2026-03-24T05-01-02',
-                '2026-03-24T05-17-51',
-                '2026-03-24T05-23-26',
-                '2026-03-24T05-52-49',
-                '2026-03-24T06-28-45'
-            ];
+            const timestamps = ['2026-03-24T04-53-39', '2026-03-24T05-01-02', '2026-03-24T05-17-51', '2026-03-24T05-23-26', '2026-03-24T05-52-49', '2026-03-24T06-28-45'];
 
             try {
                 let allSampleFiles = [];
-
                 for (const ts of timestamps) {
                     const perfName = `NVIDIA_App_Performance_Log_${ts}.csv`;
                     const latName = `NVIDIA_App_Latency_Log_${ts}.csv`;
-
-                    const [perfRes, latRes] = await Promise.all([
-                        fetch(`./samples/${perfName}`),
-                        fetch(`./samples/${latName}`)
-                    ]);
-
+                    const [perfRes, latRes] = await Promise.all([ fetch(`./samples/${perfName}`), fetch(`./samples/${latName}`) ]);
                     if (perfRes.ok && latRes.ok) {
-                        const pBlob = await perfRes.blob();
-                        const lBlob = await latRes.blob();
+                        const pBlob = await perfRes.blob(), lBlob = await latRes.blob();
                         allSampleFiles.push(new File([pBlob], perfName, { type: "text/csv" }));
                         allSampleFiles.push(new File([lBlob], latName, { type: "text/csv" }));
                     }
                 }
-
-                if (allSampleFiles.length === 0) {
-                    throw new Error("No files located.");
-                }
-
+                if (allSampleFiles.length === 0) throw new Error("No files located.");
                 await handleFiles(allSampleFiles);
             } catch (err) {
                 alert("Data retrieval failed. Verify local server configuration.");
@@ -449,13 +537,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!state.chart) return;
         const originalCanvas = document.getElementById('myChart');
         const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = originalCanvas.width;
-        tempCanvas.height = originalCanvas.height;
+        tempCanvas.width = originalCanvas.width; tempCanvas.height = originalCanvas.height;
         const ctx = tempCanvas.getContext('2d');
         
-        ctx.fillStyle = '#050505'; 
-        ctx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
-        ctx.drawImage(originalCanvas, 0, 0);
+        ctx.fillStyle = '#050505'; ctx.fillRect(0, 0, tempCanvas.width, tempCanvas.height); ctx.drawImage(originalCanvas, 0, 0);
         
         tempCanvas.toBlob(async (blob) => {
             try {
@@ -463,9 +548,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 dom.copyBtn.innerText = "COPIED";
             } catch (err) {
                 const a = document.createElement('a');
-                a.download = 'latency_graph.png';
-                a.href = tempCanvas.toDataURL('image/png');
-                a.click();
+                a.download = 'latency_graph.png'; a.href = tempCanvas.toDataURL('image/png'); a.click();
                 dom.copyBtn.innerText = "DOWNLOADED";
             }
             setTimeout(() => dom.copyBtn.innerText = "COPY GRAPH", 2000);
@@ -473,7 +556,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     window.addEventListener('load', () => setTimeout(() => document.body.classList.add('loaded'), 800));
-    
     dom.fInput.addEventListener('change', e => { handleFiles(e.target.files); });
     
     [dom.minR, dom.maxR].forEach(r => r.addEventListener('input', () => {
