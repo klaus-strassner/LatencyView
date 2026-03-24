@@ -54,11 +54,6 @@ body {
 .loader-text {
     letter-spacing: 6px; font-size: 0.65rem; color: var(--dim); 
     text-transform: uppercase; font-weight: 400;
-    animation: pulse 2s var(--easing) infinite;
-}
-@keyframes pulse {
-    0%, 100% { opacity: 0.3; }
-    50% { opacity: 1; }
 }
 body.loaded #loader { display: none; }
 
