@@ -149,6 +149,23 @@
                     <button type="button" class="action-btn disabled" id="compareBtn" style="margin-top: 15px;">Compare All</button>
                 </div>
 
+                <div class="control-group" id="sortGroup" style="display: none; margin-top: 25px;">
+                    <div class="control-label" style="display:flex; justify-content: space-between;">
+                        <span>Sort Compare</span>
+                        <span id="sortDirToggle" style="cursor: pointer; color: var(--text); font-weight: 500; letter-spacing: 2px;">ASCENDING</span>
+                    </div>
+                    <select id="sortSelect">
+                        <option value="ts">Chronological</option>
+                        <option value="tot">Total Latency</option>
+                        <option value="fps">Average FPS</option>
+                        <option value="lows">1% Low FPS</option>
+                        <option value="peri">Peripheral Latency</option>
+                        <option value="disp">Display Latency</option>
+                        <option value="cpu">Compute Latency</option>
+                        <option value="rnd">Render Latency</option>
+                    </select>
+                </div>
+
                 <div class="control-group" style="margin-top: 25px;" id="mouseInputGroup">
                     <span class="control-label">Mouse Latency (ms)</span>
                     <div class="number-input-wrapper">

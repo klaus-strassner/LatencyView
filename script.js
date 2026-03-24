@@ -3,6 +3,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const state = {
         viewMode: 'single', // 'single' or 'compare'
         visibility: { fps: true, lows: true, rnd: false, cpu: false, disp: false, peri: false, tot: true },
+        sort: { metric: 'ts', dir: 'asc' }, 
         pairedSessions: {}, 
         activeKey: null, 
         chart: null
@@ -26,7 +27,10 @@ document.addEventListener('DOMContentLoaded', () => {
         csOpts: document.getElementById('customSelectOptions'),
         compareBtn: document.getElementById('compareBtn'),
         timespanGroup: document.getElementById('timespanGroup'),
-        mouseGroup: document.getElementById('mouseInputGroup')
+        mouseGroup: document.getElementById('mouseInputGroup'),
+        sortGroup: document.getElementById('sortGroup'),
+        sortSelect: document.getElementById('sortSelect'),
+        sortDirToggle: document.getElementById('sortDirToggle')
     };
 
     // --- Custom Dropdown Controller ---
@@ -83,15 +87,28 @@ document.addEventListener('DOMContentLoaded', () => {
             dom.compareBtn.textContent = 'Exit Compare Mode';
             dom.csWrap.classList.add('ui-disabled');
             dom.csDisp.textContent = "COMPARING SESSIONS";
-            dom.timespanGroup.classList.add('ui-disabled');
+            dom.timespanGroup.style.display = 'none';
+            dom.sortGroup.style.display = 'block'; 
         } else {
             state.viewMode = 'single';
             dom.compareBtn.classList.remove('active');
             dom.compareBtn.textContent = 'Compare All';
             dom.csWrap.classList.remove('ui-disabled');
             dom.csDisp.textContent = state.activeKey;
-            dom.timespanGroup.classList.remove('ui-disabled');
+            dom.timespanGroup.style.display = 'block';
+            dom.sortGroup.style.display = 'none'; 
         }
+        renderChart();
+    });
+
+    dom.sortSelect.addEventListener('change', (e) => {
+        state.sort.metric = e.target.value;
+        renderChart();
+    });
+
+    dom.sortDirToggle.addEventListener('click', () => {
+        state.sort.dir = state.sort.dir === 'asc' ? 'desc' : 'asc';
+        dom.sortDirToggle.textContent = state.sort.dir === 'asc' ? 'ASCENDING' : 'DESCENDING';
         renderChart();
     });
 
@@ -103,7 +120,8 @@ document.addEventListener('DOMContentLoaded', () => {
         state.viewMode = 'single';
         dom.compareBtn.classList.remove('active');
         dom.compareBtn.textContent = 'Compare All';
-        dom.timespanGroup.classList.remove('ui-disabled');
+        dom.timespanGroup.style.display = 'block';
+        dom.sortGroup.style.display = 'none';
         dom.csWrap.classList.remove('ui-disabled');
         
         buildCustomSelect([]);
@@ -224,9 +242,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function renderCompareChart() {
-        const labels = Object.keys(state.pairedSessions);
+        const rawKeys = Object.keys(state.pairedSessions);
         
-        const avgData = labels.map(ts => {
+        let sessionData = rawKeys.map(ts => {
             const session = state.pairedSessions[ts];
             const lData = session.cleanLat, pData = session.perf.data;
             const colFPS = session.perf.cols.find(c => c.toLowerCase().includes('fps')),
@@ -250,40 +268,65 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             const avgPCD = sumPCD / lData.length, avgTot = sumTot / lData.length;
 
-            return { fps: avgFPS, lows: avgLow, rnd: avgRnd, cpu: avgPC - avgRnd, disp: avgPCD - avgPC, peri: avgTot - avgPCD, tot: avgTot };
+            return { ts: ts, fps: avgFPS, lows: avgLow, rnd: avgRnd, cpu: avgPC - avgRnd, disp: avgPCD - avgPC, peri: avgTot - avgPCD, tot: avgTot };
+        });
+
+        sessionData.sort((a, b) => {
+            let valA = a[state.sort.metric];
+            let valB = b[state.sort.metric];
+
+            if (state.sort.metric === 'ts') {
+                if (valA < valB) return state.sort.dir === 'asc' ? -1 : 1;
+                if (valA > valB) return state.sort.dir === 'asc' ? 1 : -1;
+                return 0;
+            } else {
+                return state.sort.dir === 'asc' ? valA - valB : valB - valA;
+            }
+        });
+
+        const labels = sessionData.map(d => d.ts);
+        const avgData = sessionData;
+
+        const activeLatSums = avgData.map(d => {
+            let s = 0;
+            if (state.visibility.rnd) s += d.rnd;
+            if (state.visibility.cpu) s += d.cpu;
+            if (state.visibility.disp) s += d.disp;
+            if (state.visibility.peri) s += d.peri;
+            return s;
         });
 
         const datasets = [];
-        const pushBar = (id, label, stack, xAxisID, color) => {
+        const pushBar = (id, label, stack, xAxisID, border, bg, dataOverride = null) => {
             if (!state.visibility[id]) return;
             datasets.push({
-                _isToggled: true, label: label, data: avgData.map(d => d[id]), backgroundColor: color,
-                stack: stack, xAxisID: xAxisID, barPercentage: 0.8, categoryPercentage: 0.8
+                id: id, 
+                _isToggled: true, label: label, data: dataOverride || avgData.map(d => d[id]), 
+                backgroundColor: bg, borderColor: border, borderWidth: 1,
+                stack: stack, xAxisID: xAxisID, barPercentage: 0.5, categoryPercentage: 0.8
             });
         };
 
         const hasSubLats = state.visibility.rnd || state.visibility.cpu || state.visibility.disp || state.visibility.peri;
 
-        // Grouped Performance Metrics
-        pushBar('fps', 'AVERAGE FPS', 'fps', 'xTop', '#10b981');
-        pushBar('lows', '1% LOW FPS', 'lows', 'xTop', '#059669');
+        pushBar('fps', 'AVERAGE FPS', 'fps', 'xTop', '#10b981', 'rgba(16, 185, 129, 0.15)');
+        pushBar('lows', '1% LOW FPS', 'lows', 'xTop', '#059669', 'rgba(5, 150, 105, 0.15)');
 
-        // Stacked Latency Pipeline logic
-        if (hasSubLats) {
-            pushBar('peri', 'PERIPHERAL LATENCY', 'lat', 'xBottom', '#d4d4d8');
-            pushBar('disp', 'DISPLAY LATENCY', 'lat', 'xBottom', '#a1a1aa');
-            pushBar('cpu', 'COMPUTE LATENCY', 'lat', 'xBottom', '#71717a');
-            pushBar('rnd', 'RENDER LATENCY', 'lat', 'xBottom', '#52525b');
-        } else if (state.visibility.tot) {
-            // Draw standalone total block if no sub-measurements are active
-            pushBar('tot', 'TOTAL LATENCY', 'lat', 'xBottom', '#ffffff');
+        pushBar('rnd', 'RENDER LATENCY', 'lat', 'xBottom', '#52525b', 'rgba(82, 82, 91, 0.15)');
+        pushBar('cpu', 'COMPUTE LATENCY', 'lat', 'xBottom', '#71717a', 'rgba(113, 113, 122, 0.15)');
+        pushBar('disp', 'DISPLAY LATENCY', 'lat', 'xBottom', '#a1a1aa', 'rgba(161, 161, 170, 0.15)');
+        pushBar('peri', 'PERIPHERAL LATENCY', 'lat', 'xBottom', '#d4d4d8', 'rgba(212, 212, 216, 0.15)');
+
+        if (state.visibility.tot) {
+            const totData = avgData.map((d, i) => hasSubLats ? Math.max(0, d.tot - activeLatSums[i]) : d.tot);
+            const totBg = hasSubLats ? 'transparent' : 'rgba(255, 255, 255, 0.15)';
+            pushBar('tot', 'TOTAL LATENCY', 'lat', 'xBottom', '#ffffff', totBg, totData);
         }
 
         const ctx = document.getElementById('myChart').getContext('2d');
         if (state.chart) state.chart.destroy();
         const fM = parseFloat(dom.fpsInput.value), lM = parseFloat(dom.latInput.value);
 
-        // Native Data-Label Rendering Engine
         const inlineDataLabels = {
             id: 'inlineDataLabels',
             afterDatasetsDraw(chart) {
@@ -300,19 +343,19 @@ document.addEventListener('DOMContentLoaded', () => {
                     const meta = chart.getDatasetMeta(i);
                     if (!meta.hidden && dataset._isToggled) {
                         const isLatStack = dataset.stack === 'lat';
+                        const isTot = dataset.id === 'tot';
 
                         meta.data.forEach((el, index) => {
                             const val = dataset.data[index];
                             if (val !== null && val > 0) {
-                                // Draw text securely inside the block on the very left
-                                if (el.width && el.width > 24) {
-                                    const c = dataset.backgroundColor;
-                                    ctx.fillStyle = (c === '#a1a1aa' || c === '#d4d4d8' || c === '#10b981' || c === '#ffffff') ? '#050505' : '#ffffff';
-                                    ctx.textAlign = 'left';
-                                    ctx.fillText(fmt(val), el.base + 8, el.y);
+                                
+                                // Because the bars are now dark/translucent, text returns to pure white.
+                                if (!(isTot && hasSubLats) && el.width && el.width > 24) {
+                                    ctx.fillStyle = '#ffffff'; 
+                                    ctx.textAlign = 'right';
+                                    ctx.fillText(fmt(val), el.x - 8, el.y); 
                                 }
                                 
-                                // Track stack edge values for the latency bar sum
                                 if (isLatStack) {
                                     latStackSums[index] += val;
                                     if (el.x > latStackEdges[index]) latStackEdges[index] = el.x;
@@ -323,9 +366,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 });
 
-                // Shift sum outside the block to the right ONLY if sub-components populate it
                 if (hasSubLats) {
-                    ctx.fillStyle = '#a1a1aa';
+                    ctx.fillStyle = '#ffffff';
                     ctx.textAlign = 'left';
                     latStackEdges.forEach((edgeX, index) => {
                         if (latStackSums[index] > 0) {
@@ -347,7 +389,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 layout: { padding: { left: 50, right: 50, top: 50, bottom: 20 } },
                 plugins: { 
                     legend: { display: true, position: 'top', align: 'center', labels: { color: '#a1a1aa', font: { family: "'JetBrains Mono'", size: 10, weight: '400' }, boxWidth: 10, padding: 35 } },
-                    tooltip: { backgroundColor: '#0a0a0c', titleFont: { family: "'JetBrains Mono'", size: 11, weight: '500' }, bodyFont: { family: "'JetBrains Mono'", size: 10, weight: '400' }, titleColor: '#ffffff', bodyColor: '#a1a1aa', cornerRadius: 0, borderColor: '#27272a', borderWidth: 1, padding: 16, boxPadding: 6, callbacks: { label: c => `${c.dataset.label}: ${fmt(c.raw)}` } } 
+                    tooltip: { 
+                        backgroundColor: '#0a0a0c', titleFont: { family: "'JetBrains Mono'", size: 11, weight: '500' }, 
+                        bodyFont: { family: "'JetBrains Mono'", size: 10, weight: '400' }, titleColor: '#ffffff', 
+                        bodyColor: '#a1a1aa', cornerRadius: 0, borderColor: '#27272a', borderWidth: 1, padding: 16, 
+                        boxPadding: 6, 
+                        callbacks: { 
+                            label: c => {
+                                if (c.dataset.id === 'tot') return `${c.dataset.label}: ${fmt(avgData[c.dataIndex].tot)}`;
+                                return `${c.dataset.label}: ${fmt(c.raw)}`;
+                            } 
+                        } 
+                    } 
                 },
                 scales: {
                     y: { stacked: true, ticks: { color: '#71717a', font: { family: "'JetBrains Mono'", size: 10 } }, grid: { display: false } },

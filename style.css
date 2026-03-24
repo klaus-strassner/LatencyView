@@ -247,12 +247,19 @@ body.has-data .chart-wrapper { display: block; }
     width: 100%; text-transform: uppercase; letter-spacing: 2px;
 }
 .action-btn:hover { border-color: var(--dim); color: var(--text); }
-.action-btn.active { background: var(--text); color: var(--bg); border-color: var(--text); font-weight: 500; }
+
+/* Updated Active Button State */
+.action-btn.active { 
+    background: rgba(255, 255, 255, 0.08); 
+    color: var(--text); 
+    border-color: var(--text); 
+    font-weight: 500; 
+}
 .action-btn.disabled { opacity: 0.5; pointer-events: none; }
 
 .ui-disabled { opacity: 0.25; pointer-events: none; transition: opacity 0.4s var(--easing); }
 
-/* --- Bespoke Dropdown Component (Corrected) --- */
+/* --- Bespoke Dropdown Component --- */
 .custom-select-wrapper { 
     position: relative; 
     user-select: none; 
@@ -272,16 +279,14 @@ body.has-data .chart-wrapper { display: block; }
     background: transparent;
 }
 
-/* 1. Only highlight when actually hovering, regardless of open/closed state */
 .custom-select-wrapper:not(.disabled) .custom-select-display:hover { 
     border-color: var(--dim); 
     color: var(--text); 
 }
 
-/* 2. When the menu is OPEN, we keep the border defined, but let the text dim if not hovered */
 .custom-select-wrapper.open .custom-select-display { 
-    border-color: var(--dimmer); /* Subtle border to show it's active */
-    color: var(--dim);           /* Return text to dim unless hovered */
+    border-color: var(--dimmer); 
+    color: var(--dim);           
 }
 
 .custom-select-display::after {
@@ -289,14 +294,14 @@ body.has-data .chart-wrapper { display: block; }
     width: 6px; 
     height: 6px; 
     border-right: 1px solid var(--dimmer); 
-    border-bottom: 1px solid var(--line-grey); /* Matched to border logic */
+    border-bottom: 1px solid var(--line-grey);
     transform: translateY(-2px) rotate(45deg); 
     transition: transform 0.4s var(--easing);
 }
 
 .custom-select-wrapper.open .custom-select-display::after { 
     transform: translateY(2px) rotate(-135deg); 
-    border-color: var(--text); /* Make arrow bright when open */
+    border-color: var(--text); 
 }
 
 .custom-select-options {
@@ -305,7 +310,7 @@ body.has-data .chart-wrapper { display: block; }
     left: 0; 
     right: 0;
     background: var(--cell); 
-    border: 1px solid var(--dimmer); /* Slightly brighter border for the menu itself */
+    border: 1px solid var(--dimmer);
     z-index: 50; 
     display: none; 
     flex-direction: column; 
