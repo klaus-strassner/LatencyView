@@ -10,33 +10,37 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
     
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div id="loader">INITIALIZING...</div>
+    <div id="loader">
+        <div class="loader-text">INITIALIZING TELEMETRY</div>
+    </div>
 
     <main class="main-grid" id="mainGrid">
         
         <section class="chart-cell">
             <button type="button" class="copy-btn" id="copyGraphBtn">Copy Graph</button>
             
-            <div class="title" id="homeBtn" style="cursor: pointer;" title="Return to Setup">Latency View<span id="chartSubTitle" class="subtitle"></span></div>
+            <div class="title" id="homeBtn" style="cursor: pointer;" title="Return to Setup">
+                Latency View<span id="chartSubTitle" class="subtitle"></span>
+            </div>
             
             <div class="guide-wrapper" id="guideWrapper">
                 <div class="guide-content wide-guide">
                     
                     <div class="guide-header">
                         <h2>Initialization</h2>
-                        <p>Configure hardware and software to capture latency data.</p>
+                        <p>Configure hardware and software to capture precise telemetry data.</p>
                     </div>
 
                     <div class="accordion-container">
                         
-                        <details class="step-accordion">
+                        <details class="step-accordion" name="setup-guide" open>
                             <summary>
                                 <div class="step-summary-inner">
-                                    <div class="step-num">1</div>
+                                    <div class="step-num">01</div>
                                     <h3>Hardware</h3>
                                 </div>
                             </summary>
@@ -50,10 +54,10 @@
                             </div>
                         </details>
 
-                        <details class="step-accordion">
+                        <details class="step-accordion" name="setup-guide">
                             <summary>
                                 <div class="step-summary-inner">
-                                    <div class="step-num">2</div>
+                                    <div class="step-num">02</div>
                                     <h3>Software</h3>
                                 </div>
                             </summary>
@@ -68,10 +72,10 @@
                             </div>
                         </details>
 
-                        <details class="step-accordion">
+                        <details class="step-accordion" name="setup-guide">
                             <summary>
                                 <div class="step-summary-inner">
-                                    <div class="step-num">3</div>
+                                    <div class="step-num">03</div>
                                     <h3>Automation</h3>
                                 </div>
                             </summary>
@@ -124,7 +128,7 @@
 
                 <input type="file" id="csvFile" accept=".csv" multiple style="display: none;">
 
-                <label for="csvFile" class="upload-zone" id="dropZone" style="margin-bottom: 30px;">
+                <label for="csvFile" class="upload-zone" id="dropZone" style="margin-bottom: 40px;">
                     <span>Load New Data</span>
                 </label>
 
@@ -133,7 +137,7 @@
                     <select id="activeSessionSelect" disabled><option value="">Awaiting Data...</option></select>
                 </div>
                 
-                <div class="control-group" style="margin-top: 20px;">
+                <div class="control-group" style="margin-top: 25px;">
                     <span class="control-label">Mouse Latency (ms)</span>
                     <div class="number-input-wrapper">
                         <button type="button" class="num-btn minus" data-target="manualMouseLat">−</button>
@@ -143,10 +147,10 @@
                     <div id="mouseStatus" class="input-note"></div>
                 </div>
 
-                <div class="control-group" style="margin-top: 30px;">
+                <div class="control-group" style="margin-top: 35px;">
                     <div class="control-label" style="display:flex; justify-content: space-between;">
                         <span>Timespan</span>
-                        <span id="rangeLabel" style="color: #fff; font-weight: 400;">0.00 - 0.00s</span>
+                        <span id="rangeLabel" style="color: var(--text); font-weight: 400;">0.00 - 0.00s</span>
                     </div>
                     <div class="range-slider-wrapper">
                         <div id="rangeTrack" class="range-track-highlight"></div>
@@ -155,7 +159,7 @@
                     </div>
                 </div>
 
-                <div class="split-row" style="margin-top: 30px;">
+                <div class="split-row" style="margin-top: 35px;">
                     <div class="control-group">
                         <label class="control-label">MAX FPS</label>
                         <div class="number-input-wrapper">

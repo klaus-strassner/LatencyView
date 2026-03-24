@@ -160,7 +160,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const lData = session.cleanLat, pData = session.perf.data;
         const tL = session.lat.cols[0], tP = session.perf.cols[0];
 
-        // Update Mouse Latency Note logic
         if (session.hasMouseData) {
             dom.mouseStatus.classList.remove('visible');
             dom.mouseInput.parentElement.classList.remove('fallback-active');
@@ -197,12 +196,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const datasets = [];
         const activeFPS = prepPerf(colFPS), activeLow = prepPerf(colLow), activeRnd = prepPerf(colRnd), activePC = prepPerf(colPC);
         
-        if (state.visibility.fps) datasets.push({ label: "AVERAGE FPS", data: activeFPS, yAxisID: 'yL', borderColor: '#32d74b', borderWidth: 2, pointRadius: 0 });
-        if (state.visibility.lows) datasets.push({ label: "1% LOW FPS", data: activeLow, yAxisID: 'yL', borderColor: '#16a34a', borderWidth: 2, pointRadius: 0 });
+        // ALL line widths explicitly set to 1 for absolute precision. 
+        if (state.visibility.fps) datasets.push({ label: "AVERAGE FPS", data: activeFPS, yAxisID: 'yL', borderColor: '#10b981', borderWidth: 1, pointRadius: 0, tension: 0 });
+        if (state.visibility.lows) datasets.push({ label: "1% LOW FPS", data: activeLow, yAxisID: 'yL', borderColor: '#059669', borderWidth: 1, pointRadius: 0, tension: 0 });
         
         let lastIdx = null;
-        if (state.visibility.rnd) { datasets.push({ label: "RENDER LATENCY", data: activeRnd, yAxisID: 'yR', borderColor: '#52525b', backgroundColor: 'rgba(82, 82, 91, 0.1)', fill: 'origin', borderWidth: 1.5, pointRadius: 0 }); lastIdx = datasets.length - 1; }
-        if (state.visibility.cpu) { datasets.push({ label: "COMPUTE LATENCY", data: activePC, yAxisID: 'yR', borderColor: '#71717a', backgroundColor: 'rgba(113, 113, 122, 0.1)', fill: lastIdx !== null ? lastIdx : 'origin', borderWidth: 1.5, pointRadius: 0 }); lastIdx = datasets.length - 1; }
+        if (state.visibility.rnd) { datasets.push({ label: "RENDER LATENCY", data: activeRnd, yAxisID: 'yR', borderColor: '#52525b', backgroundColor: 'rgba(82, 82, 91, 0.15)', fill: 'origin', borderWidth: 1, pointRadius: 0, tension: 0 }); lastIdx = datasets.length - 1; }
+        if (state.visibility.cpu) { datasets.push({ label: "COMPUTE LATENCY", data: activePC, yAxisID: 'yR', borderColor: '#71717a', backgroundColor: 'rgba(113, 113, 122, 0.15)', fill: lastIdx !== null ? lastIdx : 'origin', borderWidth: 1, pointRadius: 0, tension: 0 }); lastIdx = datasets.length - 1; }
 
         const valPCD = [], valTot = [], mBase = parseFloat(dom.mouseInput.value) || 0;
         lData.slice(startIdx, endIdx + 1).forEach(r => {
@@ -213,9 +213,9 @@ document.addEventListener('DOMContentLoaded', () => {
             valTot.push({ x: r[tL], y: isRealMouse ? r[colSys] : (r[colPCD] + mBase + (mBase * r._jitter)) });
         });
 
-        if (state.visibility.disp) { datasets.push({ label: "DISPLAY LATENCY", data: valPCD, yAxisID: 'yR', borderColor: '#a1a1aa', backgroundColor: 'rgba(161, 161, 170, 0.1)', fill: lastIdx !== null ? lastIdx : 'origin', borderWidth: 1.5, pointRadius: 0 }); lastIdx = datasets.length - 1; }
-        if (state.visibility.peri) { datasets.push({ label: "PERIPHERAL LATENCY", data: valTot, yAxisID: 'yR', borderColor: '#d4d4d8', backgroundColor: 'rgba(212, 212, 216, 0.1)', fill: lastIdx !== null ? lastIdx : 'origin', borderWidth: 1.5, pointRadius: 0 }); }
-        if (state.visibility.tot) { datasets.push({ label: "TOTAL LATENCY", data: valTot, yAxisID: 'yR', borderColor: '#ffffff', borderWidth: 1, pointRadius: 0, fill: false }); }
+        if (state.visibility.disp) { datasets.push({ label: "DISPLAY LATENCY", data: valPCD, yAxisID: 'yR', borderColor: '#a1a1aa', backgroundColor: 'rgba(161, 161, 170, 0.15)', fill: lastIdx !== null ? lastIdx : 'origin', borderWidth: 1, pointRadius: 0, tension: 0 }); lastIdx = datasets.length - 1; }
+        if (state.visibility.peri) { datasets.push({ label: "PERIPHERAL LATENCY", data: valTot, yAxisID: 'yR', borderColor: '#d4d4d8', backgroundColor: 'rgba(212, 212, 216, 0.15)', fill: lastIdx !== null ? lastIdx : 'origin', borderWidth: 1, pointRadius: 0, tension: 0 }); }
+        if (state.visibility.tot) { datasets.push({ label: "TOTAL LATENCY", data: valTot, yAxisID: 'yR', borderColor: '#ffffff', borderWidth: 1, pointRadius: 0, fill: false, tension: 0 }); }
 
         const updateSidebarMetrics = (id, arr) => {
             const els = ['min', 'avg', 'max'].map(t => document.getElementById(`${t}-${id}`));
@@ -242,27 +242,37 @@ document.addEventListener('DOMContentLoaded', () => {
             type: 'line', 
             data: { datasets },
             options: {
+                // EXTREME SUPERSAMPLING FOR FLAWLESS RESOLUTION
+                devicePixelRatio: Math.max(window.devicePixelRatio || 1, 4), 
                 responsive: true, 
                 maintainAspectRatio: false, 
                 animation: false,
-                layout: { padding: { left: 40, right: 40, top: 40, bottom: 20 } },
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
+                layout: { padding: { left: 50, right: 50, top: 50, bottom: 20 } },
                 plugins: { 
-                    legend: { display: true, position: 'top', align: 'center', labels: { color: '#a1a1aa', font: { family: "'JetBrains Mono'", size: 10, weight: '500' }, boxWidth: 12, padding: 30 } },
+                    legend: { display: true, position: 'top', align: 'center', labels: { color: '#a1a1aa', font: { family: "'JetBrains Mono'", size: 10, weight: '400' }, boxWidth: 10, padding: 35 } },
                     tooltip: { 
-                        backgroundColor: '#050505', 
-                        titleFont: { family: "'JetBrains Mono'", size: 10 }, 
-                        bodyFont: { family: "'JetBrains Mono'", size: 10 },
+                        backgroundColor: '#0a0a0c', 
+                        titleFont: { family: "'JetBrains Mono'", size: 11, weight: '500' }, 
+                        bodyFont: { family: "'JetBrains Mono'", size: 10, weight: '400' },
+                        titleColor: '#ffffff',
+                        bodyColor: '#a1a1aa',
                         cornerRadius: 0,
                         borderColor: '#27272a', 
                         borderWidth: 1,
-                        padding: 12,
+                        padding: 16,
+                        boxPadding: 6,
+                        itemSort: (a, b) => b.raw.y - a.raw.y,
                         callbacks: { label: c => `${c.dataset.label}: ${fmt(c.raw.y)}` } 
                     } 
                 },
                 scales: {
-                    x: { type: 'linear', min: mMin, max: mMax, ticks: { color: '#737373', font: { size: 10 }, callback: v => fmt(v) }, title: { display: true, text: 'TIME (s)', color: '#737373', font: { weight: '500', size: 10 }, padding: { top: 15 } }, grid: { color: '#1a1a1a' } },
-                    yL: { type: 'linear', position: 'left', min: 0, max: fM, ticks: { color: '#737373', font: { size: 10 }, callback: v => fmt(v) }, title: { display: true, text: 'FPS', color: '#737373', font: { weight: '500', size: 10 }, padding: { bottom: 15 } }, grid: { color: '#1a1a1a' }, afterFit: s => s.width = 60 },
-                    yR: { type: 'linear', position: 'right', min: 0, max: lM, ticks: { color: '#737373', font: { size: 10 }, callback: v => fmt(v) }, title: { display: true, text: 'LATENCY (ms)', color: '#737373', font: { weight: '500', size: 10 }, padding: { bottom: 15 } }, grid: { drawOnChartArea: false }, afterFit: s => s.width = 60 }
+                    x: { type: 'linear', min: mMin, max: mMax, ticks: { color: '#71717a', font: { size: 10 }, callback: v => fmt(v) }, title: { display: true, text: 'TIME (s)', color: '#71717a', font: { weight: '500', size: 10, letterSpacing: 2 }, padding: { top: 20 } }, grid: { color: 'rgba(255, 255, 255, 0.05)' } },
+                    yL: { type: 'linear', position: 'left', min: 0, max: fM, ticks: { color: '#71717a', font: { size: 10 }, callback: v => fmt(v) }, title: { display: true, text: 'FPS', color: '#71717a', font: { weight: '500', size: 10, letterSpacing: 2 }, padding: { bottom: 20 } }, grid: { color: 'rgba(255, 255, 255, 0.05)' }, afterFit: s => s.width = 60 },
+                    yR: { type: 'linear', position: 'right', min: 0, max: lM, ticks: { color: '#71717a', font: { size: 10 }, callback: v => fmt(v) }, title: { display: true, text: 'LATENCY (ms)', color: '#71717a', font: { weight: '500', size: 10, letterSpacing: 2 }, padding: { bottom: 20 } }, grid: { drawOnChartArea: false }, afterFit: s => s.width = 60 }
                 }
             }
         });
@@ -270,7 +280,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const debouncedRenderChart = debounce(renderChart, 25);
 
-    // Custom Input Spinner Logic
     document.querySelectorAll('.num-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
             const targetId = e.target.dataset.target;
@@ -294,7 +303,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('.sample-data-link').forEach(btn => {
         btn.addEventListener('click', async (e) => {
             const originalText = e.target.innerText;
-            e.target.innerText = "LOADING DATA...";
+            e.target.innerText = "LOADING...";
             
             const timestamps = [
                 '2026-03-24T04-53-39',
@@ -347,7 +356,7 @@ document.addEventListener('DOMContentLoaded', () => {
         tempCanvas.height = originalCanvas.height;
         const ctx = tempCanvas.getContext('2d');
         
-        ctx.fillStyle = '#09090b'; 
+        ctx.fillStyle = '#050505'; 
         ctx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
         ctx.drawImage(originalCanvas, 0, 0);
         
@@ -366,7 +375,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 'image/png');
     });
 
-    window.addEventListener('load', () => setTimeout(() => document.body.classList.add('loaded'), 500));
+    window.addEventListener('load', () => setTimeout(() => document.body.classList.add('loaded'), 800));
     
     dom.fInput.addEventListener('change', e => { handleFiles(e.target.files); });
     dom.aSelect.addEventListener('change', e => { state.activeKey = e.target.value; renderChart(); });
