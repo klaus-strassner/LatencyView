@@ -14,10 +14,10 @@
     /* Recalibrated Semantic Graph Colors */
     --c-fps: #10b981; /* Precise Emerald */
     --c-lows: #059669; 
+    --c-syslat: #d4d4d8; 
+    --c-pcdisp: #a1a1aa; 
     --c-rndlat: #52525b;
     --c-pclat: #71717a; 
-    --c-pcdisp: #a1a1aa; 
-    --c-syslat: #d4d4d8; 
     --c-totlat: #ffffff;
 
     --easing: cubic-bezier(0.16, 1, 0.3, 1);

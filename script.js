@@ -33,7 +33,7 @@ document.addEventListener('DOMContentLoaded', () => {
         sortDirToggle: document.getElementById('sortDirToggle')
     };
 
-    const metricHierarchy = ['fps', 'lows', 'tot', 'peri', 'disp', 'cpu', 'rnd'];
+    const metricHierarchy = ['fps', 'lows', 'tot', 'peri', 'disp', 'rnd', 'cpu'];
 
     function getOptimalSortDir(metric) {
         return (metric === 'fps' || metric === 'lows') ? 'desc' : 'asc';
@@ -366,7 +366,6 @@ document.addEventListener('DOMContentLoaded', () => {
             if (latStack > maxLat) maxLat = latStack;
         });
 
-        // Snap directly to next natural interval (50 for FPS, 5 for Latency)
         const fM = maxFPS > 0 ? Math.ceil(maxFPS / 50) * 50 : parseFloat(dom.fpsInput.value);
         const lM = maxLat > 0 ? Math.ceil(maxLat / 5) * 5 : parseFloat(dom.latInput.value);
 
@@ -387,10 +386,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
         pushBar('fps', 'AVERAGE FPS', 'fps', 'xTop', '#10b981', 'rgba(16, 185, 129, 0.15)');
         pushBar('lows', '1% LOW FPS', 'lows', 'xTop', '#059669', 'rgba(5, 150, 105, 0.15)');
+        pushBar('peri', 'PERIPHERAL LATENCY', 'lat', 'xBottom', '#d4d4d8', 'rgba(212, 212, 216, 0.15)');
+        pushBar('disp', 'DISPLAY LATENCY', 'lat', 'xBottom', '#a1a1aa', 'rgba(161, 161, 170, 0.15)');
         pushBar('rnd', 'RENDER LATENCY', 'lat', 'xBottom', '#52525b', 'rgba(82, 82, 91, 0.15)');
         pushBar('cpu', 'COMPUTE LATENCY', 'lat', 'xBottom', '#71717a', 'rgba(113, 113, 122, 0.15)');
-        pushBar('disp', 'DISPLAY LATENCY', 'lat', 'xBottom', '#a1a1aa', 'rgba(161, 161, 170, 0.15)');
-        pushBar('peri', 'PERIPHERAL LATENCY', 'lat', 'xBottom', '#d4d4d8', 'rgba(212, 212, 216, 0.15)');
 
         const totData = avgData.map((d, i) => hasSubLats ? Math.max(0, d.tot - activeLatSums[i]) : d.tot);
         const totBg = hasSubLats ? 'transparent' : 'rgba(255, 255, 255, 0.15)';
@@ -617,10 +616,10 @@ document.addEventListener('DOMContentLoaded', () => {
         pushLine('lows', '1% LOW FPS', getAverage(arrLow), activeLow, '#059669', 'transparent', false);
 
         const activeLatencyLayers = [
-            { id: 'rnd', label: "RENDER LATENCY", avg: getAverage(arrRnd), data: activeRnd, color: '#52525b', bg: 'rgba(82, 82, 91, 0.15)' },
-            { id: 'cpu', label: "COMPUTE LATENCY", avg: getAverage(arrCpu), data: activePC, color: '#71717a', bg: 'rgba(113, 113, 122, 0.15)' },
+            { id: 'peri', label: "PERIPHERAL LATENCY", avg: getAverage(arrPeri), data: valTot, color: '#d4d4d8', bg: 'rgba(212, 212, 216, 0.15)' },
             { id: 'disp', label: "DISPLAY LATENCY", avg: getAverage(arrDisp), data: valPCD, color: '#a1a1aa', bg: 'rgba(161, 161, 170, 0.15)' },
-            { id: 'peri', label: "PERIPHERAL LATENCY", avg: getAverage(arrPeri), data: valTot, color: '#d4d4d8', bg: 'rgba(212, 212, 216, 0.15)' }
+            { id: 'rnd', label: "RENDER LATENCY", avg: getAverage(arrRnd), data: activeRnd, color: '#52525b', bg: 'rgba(82, 82, 91, 0.15)' },
+            { id: 'cpu', label: "COMPUTE LATENCY", avg: getAverage(arrCpu), data: activePC, color: '#71717a', bg: 'rgba(113, 113, 122, 0.15)' }
         ];
 
         let prevIdx = 'origin';
