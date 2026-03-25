@@ -3,22 +3,25 @@
     --bg: #050505; 
     --cell: #0a0a0c; 
     --text: #ffffff;
-    --dim: #a1a1aa; /* Increased brightness for readability */
-    --dimmer: #71717a; /* Stronger baseline grey */
-    --line-grey: #27272a; /* Better definition for UI borders */
+    --dim: #a1a1aa; 
+    --dimmer: #71717a; 
+    --line-grey: #27272a; 
     
     /* Technical Accents */
     --accent: #ffffff;
     --warn: #d97757; 
     
     /* Recalibrated Semantic Graph Colors */
-    --c-fps: #10b981; /* Precise Emerald */
+    --c-fps: #10b981; 
     --c-lows: #059669; 
-    --c-syslat: #d4d4d8; 
-    --c-pcdisp: #a1a1aa; 
-    --c-rndlat: #52525b;
-    --c-pclat: #71717a; 
-    --c-totlat: #ffffff;
+    
+    /* Latency Stack: Top to Bottom */
+    --c-syslat: #d4d4d8;  /* Peripheral (Top) */
+    --c-pcdisp: #a1a1aa;  /* Display */
+    --c-rndlat: #71717a;  /* Render */
+    --c-pclat: #44444a;   /* Compute (Bottom/Darkest) */
+    
+    --c-totlat: #ffffff;  /* Total Outline */
 
     --easing: cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -248,7 +251,6 @@ body.has-data .chart-wrapper { display: block; }
 }
 .action-btn:hover { border-color: var(--dim); color: var(--text); }
 
-/* Updated Active Button State */
 .action-btn.active { 
     background: rgba(255, 255, 255, 0.08); 
     color: var(--text); 
