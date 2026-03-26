@@ -11,15 +11,12 @@
     --accent: #ffffff;
     --warn: #d97757;
 
-    /* Recalibrated Semantic Graph Colors */
-    --c-fps: #10b981;
-    --c-lows: #059669;
-
-    /* Latency Stack: Top to Bottom */
-    --c-syslat: #d4d4d8; /* Peripheral (Top) */
-    --c-pcdisp: #a1a1aa; /* Display */
-    --c-rndlat: #71717a; /* Render */
-    --c-pclat: #44444a; /* Compute (Bottom/Darkest) */
+    /* Latency Stack: Top to Bottom (Disp, Rnd, Game, OS, Peri) */
+    --c-pcdisp: #d4d4d8;  /* Display (Top) */
+    --c-rndlat: #a1a1aa;  /* Render */
+    --c-gamelat: #71717a; /* Game */
+    --c-oslat: #52525b;   /* OS */
+    --c-syslat: #44444a;  /* Peripheral (Bottom/Darkest) */
 
     --c-totlat: #ffffff; /* Total Outline */
 }

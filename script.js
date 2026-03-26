@@ -3,10 +3,9 @@ document.addEventListener("DOMContentLoaded", () => {
     const state = {
         viewMode: "single",
         visibility: {
-            fps: true,
-            lows: true,
+            game: false,
+            os: false,
             rnd: false,
-            cpu: false,
             disp: false,
             peri: false,
             tot: true,
@@ -25,8 +24,6 @@ document.addEventListener("DOMContentLoaded", () => {
         fInput: document.getElementById("csvFile"),
         mouseInput: document.getElementById("manualMouseLat"),
         mouseStatus: document.getElementById("mouseStatus"),
-        fpsInput: document.getElementById("maxFPSInput"),
-        latInput: document.getElementById("maxLatInput"),
         copyBtn: document.getElementById("copyGraphBtn"),
         mainGrid: document.getElementById("mainGrid"),
         homeBtn: document.getElementById("homeBtn"),
@@ -41,11 +38,10 @@ document.addEventListener("DOMContentLoaded", () => {
         sortDirToggle: document.getElementById("sortDirToggle"),
     };
 
-    // Updated hierarchy: Compute is now last (bottom)
-    const metricHierarchy = ["fps", "lows", "tot", "peri", "disp", "rnd", "cpu"];
+    const metricHierarchy = ["tot", "disp", "rnd", "game", "os", "peri"];
 
     function getOptimalSortDir(metric) {
-        return metric === "fps" || metric === "lows" ? "desc" : "asc";
+        return "asc";
     }
 
     // --- Custom Dropdown Controller ---
@@ -137,23 +133,18 @@ document.addEventListener("DOMContentLoaded", () => {
         state.sort.metric = newMetric;
         state.sort.dir = getOptimalSortDir(newMetric);
         dom.sortDirToggle.textContent = state.sort.dir === "asc" ? "ASCENDING" : "DESCENDING";
+        
         if (newMetric !== "ts") {
-            const activeMetrics = Object.keys(state.visibility).filter(
-                (key) => state.visibility[key]
-            );
+            const activeMetrics = Object.keys(state.visibility).filter((key) => state.visibility[key]);
             if (activeMetrics.length === 1 && activeMetrics[0] !== newMetric) {
                 const oldMetric = activeMetrics[0];
                 state.visibility[oldMetric] = false;
-                const oldRow = document.querySelector(
-                    `.metric-row[data-metric="${oldMetric}"]`
-                );
+                const oldRow = document.querySelector(`.metric-row[data-metric="${oldMetric}"]`);
                 if (oldRow) oldRow.classList.add("disabled");
             }
             if (!state.visibility[newMetric]) {
                 state.visibility[newMetric] = true;
-                const newRow = document.querySelector(
-                    `.metric-row[data-metric="${newMetric}"]`
-                );
+                const newRow = document.querySelector(`.metric-row[data-metric="${newMetric}"]`);
                 if (newRow) newRow.classList.remove("disabled");
             }
         }
@@ -185,20 +176,6 @@ document.addEventListener("DOMContentLoaded", () => {
         dom.fInput.value = "";
     }
 
-    window.addEventListener("popstate", () => {
-        if (window.location.hash !== "#workspace") {
-            resetToGuide();
-        } else if (Object.keys(state.pairedSessions).length > 0) {
-            document.body.classList.add("has-data");
-            renderChart();
-        }
-    });
-
-    dom.homeBtn.addEventListener("click", () => {
-        history.pushState("", document.title, window.location.pathname + window.location.search);
-        resetToGuide();
-    });
-
     function debounce(func, wait) {
         let timeout;
         return function executedFunction(...args) {
@@ -215,28 +192,61 @@ document.addEventListener("DOMContentLoaded", () => {
         return n === null || isNaN(n) ? "-" : parseFloat(n.toFixed(2)).toString();
     }
 
-    function getInterpolatedValue(data, time, col, timeCol) {
-        if (!data || !data.length) return null;
-        let left = null, right = null;
-        for (let i = 0; i < data.length; i++) {
-            if (data[i][timeCol] <= time) left = data[i];
-            if (data[i][timeCol] >= time) {
-                right = data[i];
-                break;
-            }
-        }
-        if (!left && right) return right[col];
-        if (left && !right) return left[col];
-        if (!left && !right) return null;
-        if (Math.abs(left[timeCol] - right[timeCol]) < 0.0001) return left[col];
-        return left[col] + (right[col] - left[col]) * ((time - left[timeCol]) / (right[timeCol] - left[timeCol]));
-    }
-
     function getAverage(arr) {
         if (!arr || !arr.length) return null;
         let sum = 0;
         for (let i = 0; i < arr.length; i++) sum += arr[i];
         return sum / arr.length;
+    }
+
+    function updateSidebarMetrics(id, arr) {
+        const els = ["min", "avg", "max"].map((t) => document.getElementById(`${t}-${id}`));
+        if (!arr || !arr.length) {
+            els.forEach((el) => { if (el) el.textContent = "-"; });
+            return;
+        }
+        let min = Infinity, max = -Infinity, sum = 0;
+        for (let i = 0; i < arr.length; i++) {
+            let v = arr[i];
+            if (v < min) min = v;
+            if (v > max) max = v;
+            sum += v;
+        }
+        if (els[0]) els[0].textContent = fmt(min);
+        if (els[1]) els[1].textContent = fmt(sum / arr.length);
+        if (els[2]) els[2].textContent = fmt(max);
+    }
+
+    function getInterpolatedValue(data, time, col, timeCol) {
+        if (!data || !data.length) return null;
+        
+        let low = 0;
+        let high = data.length - 1;
+
+        if (time <= data[0][timeCol]) return data[0][col];
+        if (time >= data[high][timeCol]) return data[high][col];
+
+        while (low <= high) {
+            let mid = Math.floor((low + high) / 2);
+            if (data[mid][timeCol] === time) return data[mid][col];
+            
+            if (data[mid][timeCol] < time) {
+                low = mid + 1;
+            } else {
+                high = mid - 1;
+            }
+        }
+
+        const left = data[high];
+        const right = data[low];
+        
+        if (!left && right) return right[col];
+        if (left && !right) return left[col];
+        if (!left && !right) return null;
+        
+        if (Math.abs(left[timeCol] - right[timeCol]) < 0.0001) return left[col];
+        
+        return left[col] + (right[col] - left[col]) * ((time - left[timeCol]) / (right[timeCol] - left[timeCol]));
     }
 
     // --- File Handling ---
@@ -258,42 +268,69 @@ document.addEventListener("DOMContentLoaded", () => {
                     });
                 })
         );
-        const raw = await Promise.all(parsePromises);
-        let groups = {};
         
+        const raw = await Promise.all(parsePromises);
+        let groups = [];
+        
+        function parseTimestamp(filename) {
+            let m = filename.match(/(\d{4})[-_](\d{2})[-_](\d{2})T(\d{2})[-_]?(\d{2})[-_]?(\d{2})/i);
+            if (m) return new Date(m[1], m[2]-1, m[3], m[4], m[5], m[6]).getTime();
+            return null;
+        }
+
+        function formatTs(ts) {
+            const d = new Date(ts);
+            return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`;
+        }
+
         raw.forEach((d) => {
-            const match = d.name.match(/_(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})\.csv$/i);
-            if (!match) return;
-            const ts = match[1];
-            if (!groups[ts]) groups[ts] = {};
-            if (d.name.toLowerCase().includes("latency")) groups[ts].lat = d;
-            else if (d.name.toLowerCase().includes("performance")) groups[ts].perf = d;
+            const ts = parseTimestamp(d.name);
+            if (!ts) return;
+
+            let group = groups.find(g => Math.abs(g.baseTs - ts) <= 5000);
+            if (!group) {
+                group = { baseTs: ts, displayTs: formatTs(ts), files: {} };
+                groups.push(group);
+            }
+
+            if (d.name.toLowerCase().includes("latency")) group.files.lat = d;
+            else if (d.name.toLowerCase().includes("frameview") || d.name.toLowerCase().includes("game")) group.files.game = d;
         });
 
         state.pairedSessions = {};
-        Object.keys(groups).forEach((ts) => {
-            const session = groups[ts];
-            if (session.lat && session.perf) {
-                const pData = session.perf.data, lData = session.lat.data;
-                const tP = session.perf.cols[0], tL = session.lat.cols[0];
-                const colPC = session.perf.cols.find((c) => c.toLowerCase().includes("pc latency"));
+        
+        groups.forEach((group) => {
+            const session = group.files;
+            
+            if (session.lat && session.game) {
+                const lData = session.lat.data, gData = session.game.data;
+                const tL = session.lat.cols[0];
+                const tG = session.game.cols.find(c => c.toLowerCase().includes('timeinseconds'));
+
+                const baseL = lData[0][tL];
+                lData.forEach(r => r._normTime = r[tL] - baseL);
+
+                const baseG = gData[0][tG];
+                gData.forEach(r => r._normTime = r[tG] - baseG);
+
                 const colPCD = session.lat.cols.find((c) => c.toLowerCase().includes("pc + display"));
                 const colMouse = session.lat.cols.find((c) => c.toLowerCase().includes("mouse"));
                 
                 session.hasMouseData = lData.some((r) => r[colMouse] > 0);
                 const uniqueTimeMap = new Map();
-                
+                const maxTime = gData[gData.length - 1]._normTime;
+
+                // VALIDATION FILTER REMOVED: All rows within the timeframe are now included
                 lData.forEach((row) => {
-                    const t = row[tL];
-                    const baselinePC = getInterpolatedValue(pData, t, colPC, tP);
-                    if (row[colPCD] >= baselinePC && t >= pData[0][tP] && t <= pData[pData.length - 1][tP]) {
+                    const t = row._normTime;
+                    if (t >= 0 && t <= maxTime) {
                         row._jitter = Math.random() - 0.5;
                         if (!uniqueTimeMap.has(t)) uniqueTimeMap.set(t, row);
                     }
                 });
                 
-                session.cleanLat = Array.from(uniqueTimeMap.values()).sort((a, b) => a[tL] - b[tL]);
-                state.pairedSessions[ts] = session;
+                session.cleanLat = Array.from(uniqueTimeMap.values()).sort((a, b) => a._normTime - b._normTime);
+                state.pairedSessions[group.displayTs] = session;
             }
         });
         
@@ -302,10 +339,13 @@ document.addEventListener("DOMContentLoaded", () => {
             state.activeKey = sessionKeys[0];
             buildCustomSelect(sessionKeys);
             document.body.classList.add("has-data");
+
             if (window.location.hash !== "#workspace") {
                 history.pushState({ view: "workspace" }, "", "#workspace");
             }
             renderChart();
+        } else {
+            alert("Incomplete sessions detected. Please ensure you select a matching set of FrameView Game and NVIDIA Latency logs for each session.");
         }
     }
 
@@ -316,67 +356,63 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function renderCompareChart() {
         const rawKeys = Object.keys(state.pairedSessions);
-        const globalVals = { fps: [], lows: [], rnd: [], cpu: [], disp: [], peri: [], tot: [] };
+        const globalVals = { game: [], os: [], rnd: [], disp: [], peri: [], tot: [] };
 
         let sessionData = rawKeys.map((ts) => {
             const session = state.pairedSessions[ts];
-            const lData = session.cleanLat, pData = session.perf.data;
-            const tL = session.lat.cols[0], tP = session.perf.cols[0];
+            const lData = session.cleanLat, gData = session.game.data;
             
-            const colFPS = session.perf.cols.find((c) => c.toLowerCase().includes("fps"));
-            const colLow = session.perf.cols.find((c) => c.toLowerCase().includes("1(%) low"));
-            const colRnd = session.perf.cols.find((c) => c.toLowerCase().includes("render latency"));
-            const colPC = session.perf.cols.find((c) => c.toLowerCase().includes("pc latency"));
             const colPCD = session.lat.cols.find((c) => c.toLowerCase().includes("pc + display"));
             const colSys = session.lat.cols.find((c) => c.toLowerCase().includes("system latency"));
             const colMouse = session.lat.cols.find((c) => c.toLowerCase().includes("mouse"));
-
-            let sumFPS = 0, sumLow = 0, sumRnd = 0, sumPC = 0;
             
-            pData.forEach((r) => {
-                const fps = r[colFPS] || 0, low = r[colLow] || 0, rnd = r[colRnd] || 0, pc = r[colPC] || 0;
-                sumFPS += fps;
-                sumLow += low;
-                sumRnd += rnd;
-                sumPC += pc;
-                globalVals.fps.push(fps);
-                globalVals.lows.push(low);
-                globalVals.rnd.push(rnd);
-                globalVals.cpu.push(pc - rnd);
-            });
-            
-            const avgFPS = sumFPS / pData.length;
-            const avgLow = sumLow / pData.length;
-            const avgRnd = sumRnd / pData.length;
-            const avgPC = sumPC / pData.length;
+            const colGameFt = session.game.cols.find((c) => c.toLowerCase().includes("msbetweenpresents"));
+            const colGameRnd = session.game.cols.find((c) => c.toLowerCase().includes("msrenderpresentlatency"));
+            const colGamePC = session.game.cols.find((c) => c.toLowerCase().includes("mspclatency"));
 
-            let sumPCD = 0, sumTot = 0;
+            let sumGame = 0, sumOs = 0, sumRnd = 0, sumDisp = 0, sumPeri = 0, sumTot = 0;
             const mBase = parseFloat(dom.mouseInput.value) || 0;
             
             lData.forEach((r) => {
+                const t = r._normTime;
+                
+                const ft = getInterpolatedValue(gData, t, colGameFt, '_normTime') || 0;
+                const rnd = getInterpolatedValue(gData, t, colGameRnd, '_normTime') || 0;
+                const pc = getInterpolatedValue(gData, t, colGamePC, '_normTime') || 0;
+                
                 const pcd = r[colPCD] || 0;
-                sumPCD += pcd;
-                const isRealMouse = colSys && r[colSys] && r[colMouse] > 0;
-                const tot = isRealMouse ? r[colSys] : pcd + mBase + mBase * r._jitter;
-                sumTot += tot;
-                const pcLat = getInterpolatedValue(pData, r[tL], colPC, tP) || 0;
-                globalVals.disp.push(pcd - pcLat);
-                globalVals.peri.push(tot - pcd);
-                globalVals.tot.push(tot);
+                const isRealMouse = colSys && r[colSys] !== null && r[colMouse] > 0;
+                const sys = isRealMouse ? r[colSys] : pcd + mBase + mBase * r._jitter;
+
+                const isoCpu = Math.max(0, pc - rnd);
+                const game = ft > 0 ? ft : 0;
+                const os = Math.max(0, isoCpu - game);
+
+                sumGame += game;
+                sumOs += os;
+                sumRnd += Math.max(0, rnd);
+                sumDisp += Math.max(0, pcd - pc);
+                sumPeri += Math.max(0, sys - pcd);
+                sumTot += sys;
+                
+                globalVals.game.push(game);
+                globalVals.os.push(os);
+                globalVals.rnd.push(Math.max(0, rnd));
+                globalVals.disp.push(Math.max(0, pcd - pc));
+                globalVals.peri.push(Math.max(0, sys - pcd));
+                globalVals.tot.push(sys);
             });
             
-            const avgPCD = sumPCD / lData.length;
-            const avgTot = sumTot / lData.length;
+            const count = lData.length;
             
             return {
                 ts: ts,
-                fps: avgFPS,
-                lows: avgLow,
-                rnd: avgRnd,
-                cpu: avgPC - avgRnd,
-                disp: avgPCD - avgPC,
-                peri: avgTot - avgPCD,
-                tot: avgTot,
+                game: sumGame / count,
+                os: sumOs / count,
+                rnd: sumRnd / count,
+                disp: sumDisp / count,
+                peri: sumPeri / count,
+                tot: sumTot / count,
             };
         });
 
@@ -397,24 +433,22 @@ document.addEventListener("DOMContentLoaded", () => {
         const activeLatSums = avgData.map((d) => {
             let s = 0;
             if (state.visibility.rnd) s += d.rnd;
-            if (state.visibility.cpu) s += d.cpu;
+            if (state.visibility.game) s += d.game;
+            if (state.visibility.os) s += d.os;
             if (state.visibility.disp) s += d.disp;
             if (state.visibility.peri) s += d.peri;
             return s;
         });
 
-        let maxFPS = 0, maxLat = 0;
+        let maxLat = 0;
         avgData.forEach((d, i) => {
-            if (state.visibility.fps && d.fps > maxFPS) maxFPS = d.fps;
-            if (state.visibility.lows && d.lows > maxFPS) maxFPS = d.lows;
             let latStack = state.visibility.tot ? d.tot : activeLatSums[i];
             if (latStack > maxLat) maxLat = latStack;
         });
 
-        const fM = maxFPS > 0 ? Math.ceil(maxFPS / 50) * 50 : parseFloat(dom.fpsInput.value);
-        const lM = maxLat > 0 ? Math.ceil(maxLat / 5) * 5 : parseFloat(dom.latInput.value);
-
+        const lM = (Math.floor(Math.max(0, maxLat) / 5) + 1) * 5;
         const datasets = [];
+        
         const pushBar = (id, label, stack, xAxisID, border, bg, dataOverride = null) => {
             datasets.push({
                 id: id,
@@ -432,20 +466,17 @@ document.addEventListener("DOMContentLoaded", () => {
             });
         };
 
-        const hasSubLats = state.visibility.rnd || state.visibility.cpu || state.visibility.disp || state.visibility.peri;
+        const hasSubLats = state.visibility.rnd || state.visibility.game || state.visibility.os || state.visibility.disp || state.visibility.peri;
 
-        pushBar("fps", "AVERAGE FPS", "fps", "xTop", "#10b981", "rgba(16, 185, 129, 0.15)");
-        pushBar("lows", "1% LOW FPS", "lows", "xTop", "#059669", "rgba(5, 150, 105, 0.15)");
-
-        // Pushing in order of bottom-to-top stacking
-        pushBar("cpu", "COMPUTE LATENCY", "lat", "xBottom", "#44444a", "rgba(68, 68, 74, 0.15)");
-        pushBar("rnd", "RENDER LATENCY", "lat", "xBottom", "#71717a", "rgba(113, 113, 122, 0.15)");
-        pushBar("disp", "DISPLAY LATENCY", "lat", "xBottom", "#a1a1aa", "rgba(161, 161, 170, 0.15)");
-        pushBar("peri", "PERIPHERAL LATENCY", "lat", "xBottom", "#d4d4d8", "rgba(212, 212, 216, 0.15)");
+        pushBar("peri", "PERIPHERAL LATENCY", "lat", "x", "#44444a", "rgba(68, 68, 74, 0.15)");
+        pushBar("os", "OS LATENCY", "lat", "x", "#52525b", "rgba(82, 82, 91, 0.15)");
+        pushBar("game", "GAME LATENCY", "lat", "x", "#71717a", "rgba(113, 113, 122, 0.15)");
+        pushBar("rnd", "RENDER LATENCY", "lat", "x", "#a1a1aa", "rgba(161, 161, 170, 0.15)");
+        pushBar("disp", "DISPLAY LATENCY", "lat", "x", "#d4d4d8", "rgba(212, 212, 216, 0.15)");
 
         const totData = avgData.map((d, i) => (hasSubLats ? Math.max(0, d.tot - activeLatSums[i]) : d.tot));
         const totBg = hasSubLats ? "transparent" : "rgba(255, 255, 255, 0.15)";
-        pushBar("tot", "TOTAL LATENCY", "lat", "xBottom", "#ffffff", totBg, totData);
+        pushBar("tot", "TOTAL LATENCY", "lat", "x", "#ffffff", totBg, totData);
 
         const ctx = document.getElementById("myChart").getContext("2d");
         if (state.chart) state.chart.destroy();
@@ -536,13 +567,8 @@ document.addEventListener("DOMContentLoaded", () => {
                                 if (active.length === 0)
                                     return [
                                         {
-                                            text: "",
-                                            fillStyle: "transparent",
-                                            strokeStyle: "transparent",
-                                            lineWidth: 0,
-                                            boxWidth: 0,
-                                            hidden: false,
-                                            fontColor: "transparent",
+                                            text: "", fillStyle: "transparent", strokeStyle: "transparent",
+                                            lineWidth: 0, boxWidth: 0, hidden: false, fontColor: "transparent",
                                         },
                                     ];
                                 return active.map((item) => ({
@@ -557,7 +583,6 @@ document.addEventListener("DOMContentLoaded", () => {
                                 }));
                             },
                         },
-                        onClick: null,
                     },
                     tooltip: {
                         backgroundColor: "#0a0a0c",
@@ -584,7 +609,7 @@ document.addEventListener("DOMContentLoaded", () => {
                         ticks: { color: "#71717a", font: { family: "'JetBrains Mono'", size: 10 } },
                         grid: { display: false },
                     },
-                    xBottom: {
+                    x: {
                         type: "linear",
                         position: "bottom",
                         stacked: true,
@@ -594,45 +619,14 @@ document.addEventListener("DOMContentLoaded", () => {
                         title: { display: true, text: "LATENCY (ms)", color: "#71717a", font: { weight: "500", size: 10, letterSpacing: 2 }, padding: { top: 20 } },
                         grid: { color: "rgba(255, 255, 255, 0.05)" },
                     },
-                    xTop: {
-                        type: "linear",
-                        position: "top",
-                        stacked: true,
-                        min: 0,
-                        max: fM,
-                        ticks: { color: "#71717a", font: { size: 10 }, callback: (v) => fmt(v) },
-                        title: { display: true, text: "FPS", color: "#71717a", font: { weight: "500", size: 10, letterSpacing: 2 }, padding: { bottom: 20 } },
-                        grid: { drawOnChartArea: false },
-                    },
                 },
             },
             plugins: [inlineDataLabels],
         });
 
-        const updateSidebarMetrics = (id, arr) => {
-            const els = ["min", "avg", "max"].map((t) => document.getElementById(`${t}-${id}`));
-            if (!arr || !arr.length) {
-                els.forEach((el) => {
-                    if (el) el.textContent = "-";
-                });
-                return;
-            }
-            let min = Infinity, max = -Infinity, sum = 0;
-            for (let i = 0; i < arr.length; i++) {
-                let v = arr[i];
-                if (v < min) min = v;
-                if (v > max) max = v;
-                sum += v;
-            }
-            if (els[0]) els[0].textContent = fmt(min);
-            if (els[1]) els[1].textContent = fmt(sum / arr.length);
-            if (els[2]) els[2].textContent = fmt(max);
-        };
-        
-        updateSidebarMetrics("fps", globalVals.fps);
-        updateSidebarMetrics("lows", globalVals.lows);
+        updateSidebarMetrics("game", globalVals.game);
+        updateSidebarMetrics("os", globalVals.os);
         updateSidebarMetrics("rnd", globalVals.rnd);
-        updateSidebarMetrics("cpu", globalVals.cpu);
         updateSidebarMetrics("disp", globalVals.disp);
         updateSidebarMetrics("peri", globalVals.peri);
         updateSidebarMetrics("tot", globalVals.tot);
@@ -641,7 +635,7 @@ document.addEventListener("DOMContentLoaded", () => {
     function renderSingleChart() {
         if (!state.activeKey) return;
         const session = state.pairedSessions[state.activeKey];
-        const lData = session.cleanLat, pData = session.perf.data, tL = session.lat.cols[0], tP = session.perf.cols[0];
+        const lData = session.cleanLat, gData = session.game.data;
 
         if (session.hasMouseData) {
             dom.mouseStatus.classList.remove("visible");
@@ -661,55 +655,80 @@ document.addEventListener("DOMContentLoaded", () => {
         
         const startIdx = parseInt(dom.minR.value);
         const endIdx = parseInt(dom.maxR.value);
-        const mMin = lData[startIdx][tL];
-        const mMax = lData[endIdx][tL];
+        const mMin = lData[startIdx]._normTime;
+        const mMax = lData[endIdx]._normTime;
         dom.rLabel.textContent = `${fmt(mMin)} - ${fmt(mMax)}s`;
 
-        const colFPS = session.perf.cols.find((c) => c.toLowerCase().includes("fps"));
-        const colLow = session.perf.cols.find((c) => c.toLowerCase().includes("1(%) low"));
-        const colRnd = session.perf.cols.find((c) => c.toLowerCase().includes("render latency"));
-        const colPC = session.perf.cols.find((c) => c.toLowerCase().includes("pc latency"));
         const colPCD = session.lat.cols.find((c) => c.toLowerCase().includes("pc + display"));
         const colSys = session.lat.cols.find((c) => c.toLowerCase().includes("system latency"));
         const colMouse = session.lat.cols.find((c) => c.toLowerCase().includes("mouse"));
+        
+        const colGameFt = session.game.cols.find((c) => c.toLowerCase().includes("msbetweenpresents"));
+        const colGameRnd = session.game.cols.find((c) => c.toLowerCase().includes("msrenderpresentlatency"));
+        const colGamePC = session.game.cols.find((c) => c.toLowerCase().includes("mspclatency"));
 
         const mBase = parseFloat(dom.mouseInput.value) || 0;
         
-        const arrFPS = [], arrLow = [], arrRnd = [], arrCpu = [], arrDisp = [], arrPeri = [], arrTot = [];
-        const dataFPS = [], dataLow = [], dataRnd = [], dataCpu = [], dataDisp = [], dataPeri = [], dataTot = [];
+        const arrGame = [], arrOs = [], arrRnd = [], arrDisp = [], arrPeri = [], arrTot = [];
+        const dataGame = [], dataOs = [], dataRnd = [], dataDisp = [], dataPeri = [], dataTot = [];
 
-        // Master loop syncing perfectly to the high-frequency latency timeframe 
         lData.slice(startIdx, endIdx + 1).forEach((r) => {
-            const t = r[tL];
+            const t = r._normTime;
             
-            // Interpolate perf data to seamlessly align matching X values for the stack
-            const fps = getInterpolatedValue(pData, t, colFPS, tP) || 0;
-            const low = getInterpolatedValue(pData, t, colLow, tP) || 0;
-            const rnd = getInterpolatedValue(pData, t, colRnd, tP) || 0;
-            const pc = getInterpolatedValue(pData, t, colPC, tP) || 0;
+            const ft = getInterpolatedValue(gData, t, colGameFt, '_normTime') || 0;
+            const rnd = getInterpolatedValue(gData, t, colGameRnd, '_normTime') || 0;
+            const pc = getInterpolatedValue(gData, t, colGamePC, '_normTime') || 0;
             
             const pcd = r[colPCD] || 0;
-            const isRealMouse = colSys && r[colSys] && r[colMouse] > 0;
-            const sys = isRealMouse ? r[colSys] : pcd + mBase + mBase * r._jitter;
+            const sysRaw = r[colSys];
+            const mouseRaw = r[colMouse];
+            const jitter = r._jitter || 0;
 
-            // Compute true isolated components
+            const isRealMouse = colSys && sysRaw !== null && mouseRaw > 0;
+            const sys = isRealMouse ? sysRaw : pcd + mBase + mBase * jitter;
+
             const isoCpu = Math.max(0, pc - rnd);
+            const game = ft > 0 ? ft : 0;
+            const os = Math.max(0, isoCpu - game);
+
             const isoRnd = Math.max(0, rnd);
             const isoDisp = Math.max(0, pcd - pc);
             const isoPeri = Math.max(0, sys - pcd);
             const isoTot = Math.max(0, sys);
 
-            arrFPS.push(fps); arrLow.push(low);
-            arrCpu.push(isoCpu); arrRnd.push(isoRnd); arrDisp.push(isoDisp); arrPeri.push(isoPeri); arrTot.push(isoTot);
+            arrGame.push(game);
+            arrOs.push(os);
+            arrRnd.push(isoRnd); 
+            arrDisp.push(isoDisp); 
+            arrPeri.push(isoPeri); 
+            arrTot.push(isoTot);
 
-            dataFPS.push({ x: t, y: fps });
-            dataLow.push({ x: t, y: low });
-            dataCpu.push({ x: t, y: isoCpu });
+            dataGame.push({ x: t, y: game });
+            dataOs.push({ x: t, y: os });
             dataRnd.push({ x: t, y: isoRnd });
             dataDisp.push({ x: t, y: isoDisp });
             dataPeri.push({ x: t, y: isoPeri });
             dataTot.push({ x: t, y: isoTot });
         });
+
+        let maxLat = 0;
+        if (state.visibility.tot) {
+            for (let i = 0; i < arrTot.length; i++) {
+                if (arrTot[i] > maxLat) maxLat = arrTot[i];
+            }
+        } else {
+            for (let i = 0; i < arrTot.length; i++) {
+                let stackSum = 0;
+                if (state.visibility.game) stackSum += arrGame[i] || 0;
+                if (state.visibility.os) stackSum += arrOs[i] || 0;
+                if (state.visibility.rnd) stackSum += arrRnd[i] || 0;
+                if (state.visibility.disp) stackSum += arrDisp[i] || 0;
+                if (state.visibility.peri) stackSum += arrPeri[i] || 0;
+                if (stackSum > maxLat) maxLat = stackSum;
+            }
+        }
+
+        const lM = (Math.floor(Math.max(0, maxLat) / 5) + 1) * 5;
 
         const datasets = [];
         const pushLine = (id, label, avg, data, color, bg, fillMode, stackId) => {
@@ -719,7 +738,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 label: label,
                 _avgVal: avg,
                 data: data,
-                yAxisID: id === "fps" || id === "lows" ? "yL" : "yR",
+                yAxisID: "y",
                 borderColor: state.visibility[id] ? color : "transparent",
                 backgroundColor: state.visibility[id] ? bg : "transparent",
                 fill: fillMode,
@@ -730,15 +749,12 @@ document.addEventListener("DOMContentLoaded", () => {
             });
         };
 
-        pushLine("fps", "AVERAGE FPS", getAverage(arrFPS), dataFPS, "#10b981", "transparent", false, "fps");
-        pushLine("lows", "1% LOW FPS", getAverage(arrLow), dataLow, "#059669", "transparent", false, "lows");
-
-        // Stacking order: Compute (bottom) -> Render -> Display -> Peripheral (top)
         const activeLatencyLayers = [
-            { id: "cpu", label: "COMPUTE LATENCY", avg: getAverage(arrCpu), data: dataCpu, color: "#44444a", bg: "rgba(68, 68, 74, 0.15)" },
-            { id: "rnd", label: "RENDER LATENCY", avg: getAverage(arrRnd), data: dataRnd, color: "#71717a", bg: "rgba(113, 113, 122, 0.15)" },
-            { id: "disp", label: "DISPLAY LATENCY", avg: getAverage(arrDisp), data: dataDisp, color: "#a1a1aa", bg: "rgba(161, 161, 170, 0.15)" },
-            { id: "peri", label: "PERIPHERAL LATENCY", avg: getAverage(arrPeri), data: dataPeri, color: "#d4d4d8", bg: "rgba(212, 212, 216, 0.15)" },
+            { id: "peri", label: "PERIPHERAL LATENCY", avg: getAverage(arrPeri), data: dataPeri, color: "#44444a", bg: "rgba(68, 68, 74, 0.15)" },
+            { id: "os", label: "OS LATENCY", avg: getAverage(arrOs), data: dataOs, color: "#52525b", bg: "rgba(82, 82, 91, 0.15)" },
+            { id: "game", label: "GAME LATENCY", avg: getAverage(arrGame), data: dataGame, color: "#71717a", bg: "rgba(113, 113, 122, 0.15)" },
+            { id: "rnd", label: "RENDER LATENCY", avg: getAverage(arrRnd), data: dataRnd, color: "#a1a1aa", bg: "rgba(161, 161, 170, 0.15)" },
+            { id: "disp", label: "DISPLAY LATENCY", avg: getAverage(arrDisp), data: dataDisp, color: "#d4d4d8", bg: "rgba(212, 212, 216, 0.15)" },
         ];
 
         let prevIdx = "origin";
@@ -751,8 +767,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const ctx = document.getElementById("myChart").getContext("2d");
         if (state.chart) state.chart.destroy();
-        const fM = parseFloat(dom.fpsInput.value);
-        const lM = parseFloat(dom.latInput.value);
 
         state.chart = new Chart(ctx, {
             type: "line",
@@ -781,13 +795,8 @@ document.addEventListener("DOMContentLoaded", () => {
                                 if (active.length === 0)
                                     return [
                                         {
-                                            text: "",
-                                            fillStyle: "transparent",
-                                            strokeStyle: "transparent",
-                                            lineWidth: 0,
-                                            boxWidth: 0,
-                                            hidden: false,
-                                            fontColor: "transparent",
+                                            text: "", fillStyle: "transparent", strokeStyle: "transparent",
+                                            lineWidth: 0, boxWidth: 0, hidden: false, fontColor: "transparent",
                                         },
                                     ];
                                 return active.map((item) => {
@@ -833,56 +842,24 @@ document.addEventListener("DOMContentLoaded", () => {
                         title: { display: true, text: "TIME (s)", color: "#71717a", font: { weight: "500", size: 10, letterSpacing: 2 }, padding: { top: 20 } },
                         grid: { color: "rgba(255, 255, 255, 0.05)" },
                     },
-                    yL: {
+                    y: {
                         type: "linear",
                         position: "left",
-                        stacked: false,
-                        min: 0,
-                        max: fM,
-                        ticks: { color: "#71717a", font: { size: 10 }, callback: (v) => fmt(v) },
-                        title: { display: true, text: "FPS", color: "#71717a", font: { weight: "500", size: 10, letterSpacing: 2 }, padding: { bottom: 20 } },
-                        grid: { color: "rgba(255, 255, 255, 0.05)" },
-                        afterFit: (s) => (s.width = 60),
-                    },
-                    yR: {
-                        type: "linear",
-                        position: "right",
                         stacked: true,
                         min: 0,
                         max: lM,
                         ticks: { color: "#71717a", font: { size: 10 }, callback: (v) => fmt(v) },
                         title: { display: true, text: "LATENCY (ms)", color: "#71717a", font: { weight: "500", size: 10, letterSpacing: 2 }, padding: { bottom: 20 } },
-                        grid: { drawOnChartArea: false },
+                        grid: { color: "rgba(255, 255, 255, 0.05)" },
                         afterFit: (s) => (s.width = 60),
                     },
                 },
             },
         });
 
-        const updateSidebarMetrics = (id, arr) => {
-            const els = ["min", "avg", "max"].map((t) => document.getElementById(`${t}-${id}`));
-            if (!arr || !arr.length) {
-                els.forEach((el) => {
-                    if (el) el.textContent = "-";
-                });
-                return;
-            }
-            let min = Infinity, max = -Infinity, sum = 0;
-            for (let i = 0; i < arr.length; i++) {
-                let v = arr[i];
-                if (v < min) min = v;
-                if (v > max) max = v;
-                sum += v;
-            }
-            if (els[0]) els[0].textContent = fmt(min);
-            if (els[1]) els[1].textContent = fmt(sum / arr.length);
-            if (els[2]) els[2].textContent = fmt(max);
-        };
-        
-        updateSidebarMetrics("fps", arrFPS);
-        updateSidebarMetrics("lows", arrLow);
+        updateSidebarMetrics("game", arrGame);
+        updateSidebarMetrics("os", arrOs);
         updateSidebarMetrics("rnd", arrRnd);
-        updateSidebarMetrics("cpu", arrCpu);
         updateSidebarMetrics("disp", arrDisp);
         updateSidebarMetrics("peri", arrPeri);
         updateSidebarMetrics("tot", arrTot);
@@ -890,6 +867,21 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const debouncedRenderChart = debounce(renderChart, 25);
     
+    // --- Event Listeners & UI Binding ---
+    window.addEventListener("popstate", () => {
+        if (window.location.hash !== "#workspace") {
+            resetToGuide();
+        } else if (Object.keys(state.pairedSessions).length > 0) {
+            document.body.classList.add("has-data");
+            renderChart();
+        }
+    });
+
+    dom.homeBtn.addEventListener("click", () => {
+        history.pushState("", document.title, window.location.pathname + window.location.search);
+        resetToGuide();
+    });
+
     document.querySelectorAll(".num-btn").forEach((btn) => {
         btn.addEventListener("click", (e) => {
             const targetId = e.target.dataset.target;
@@ -912,34 +904,59 @@ document.addEventListener("DOMContentLoaded", () => {
         btn.addEventListener("click", async (e) => {
             const originalText = e.target.innerText;
             e.target.innerText = "LOADING...";
-            const timestamps = [
-                "2026-03-24T04-53-39",
-                "2026-03-24T05-01-02",
-                "2026-03-24T05-17-51",
-                "2026-03-24T05-23-26",
-                "2026-03-24T05-52-49",
-                "2026-03-24T06-28-45",
-            ];
             
             try {
                 let allSampleFiles = [];
-                for (const ts of timestamps) {
-                    const perfName = `NVIDIA_App_Performance_Log_${ts}.csv`;
-                    const latName = `NVIDIA_App_Latency_Log_${ts}.csv`;
-                    const [perfRes, latRes] = await Promise.all([
-                        fetch(`./samples/${perfName}`),
-                        fetch(`./samples/${latName}`),
-                    ]);
-                    if (perfRes.ok && latRes.ok) {
-                        const pBlob = await perfRes.blob(), lBlob = await latRes.blob();
-                        allSampleFiles.push(new File([pBlob], perfName, { type: "text/csv" }));
-                        allSampleFiles.push(new File([lBlob], latName, { type: "text/csv" }));
+                let directoryFound = false;
+
+                try {
+                    const response = await fetch('./samples/');
+                    if (response.ok) {
+                        const text = await response.text();
+                        const matches = text.match(/href="([^"]+\.csv)"/gi);
+                        if (matches) {
+                            const csvFiles = matches.map(m => m.split('"')[1].split('/').pop());
+                            const uniqueFiles = [...new Set(csvFiles)];
+                            
+                            for (const filename of uniqueFiles) {
+                                try {
+                                    const res = await fetch(`./samples/${filename}`);
+                                    if (res.ok) {
+                                        const blob = await res.blob();
+                                        allSampleFiles.push(new File([blob], filename, { type: "text/csv" }));
+                                    }
+                                } catch(e) { }
+                            }
+                            if (allSampleFiles.length > 0) directoryFound = true;
+                        }
+                    }
+                } catch(e) { 
+                    console.warn("Directory listing failed, falling back to known paths.");
+                }
+
+                if (!directoryFound) {
+                    const fallbackFiles = [
+                        "NVIDIA_App_Latency_Log_2026-03-26T14-28-13.csv",
+                        "FrameView_Overwatch.exe_2026_03_26T142813_Log.csv",
+                        "NVIDIA_App_Latency_Log_2026-03-26T12-51-48.csv",
+                        "FrameView_Overwatch.exe_2026_03_26T125149_Log.csv"
+                    ];
+                    
+                    for (const filename of fallbackFiles) {
+                        try {
+                            const res = await fetch(`./samples/${filename}`);
+                            if (res.ok) {
+                                const blob = await res.blob();
+                                allSampleFiles.push(new File([blob], filename, { type: "text/csv" }));
+                            }
+                        } catch(e) {}
                     }
                 }
+
                 if (allSampleFiles.length === 0) throw new Error("No files located.");
                 await handleFiles(allSampleFiles);
             } catch (err) {
-                alert("Data retrieval failed. Verify local server configuration.");
+                alert("Data retrieval failed. Verify local server configuration includes the specific Game logs.");
                 console.error(err);
             } finally {
                 e.target.innerText = originalText;
@@ -1020,7 +1037,7 @@ document.addEventListener("DOMContentLoaded", () => {
         })
     );
     
-    [dom.mouseInput, dom.fpsInput, dom.latInput].forEach((i) => {
-        if (i) i.addEventListener("input", renderChart);
-    });
+    if (dom.mouseInput) {
+        dom.mouseInput.addEventListener("input", renderChart);
+    }
 });

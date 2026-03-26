@@ -6,7 +6,7 @@
     <meta name="google-site-verification" content="BsgKLeBrpH8oYS320zBbgc4o0kjVoahd4c1ieyfG9is" />
 
     <meta name="description" content="Sub-millisecond telemetry visualization for NVIDIA Reflex Latency Analyzer.">
-    <meta name="keywords" content="NVIDIA Reflex, Latency Analyzer, Input Lag, PC Latency, System Latency, Telemetry, FPS Benchmark, Gaming Performance">
+    <meta name="keywords" content="NVIDIA Reflex, Latency Analyzer, Input Lag, PC Latency, System Latency, Telemetry, Benchmark, Gaming Performance">
 
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://latencyview.com/">
@@ -75,12 +75,11 @@
                             </summary>
                             <div class="accordion-body">
                                 <ul class="guide-list">
-                                    <li>Install the NVIDIA App and enable the overlay.</li>
+                                    <li>Install FrameView and the NVIDIA App.</li>
                                     <li>Define the output directory and assign the benchmark hotkey.</li>
                                     <li>Enable NVIDIA Reflex inside the game settings.</li>
                                     <li>Align the OSD indicator and run the benchmark.</li>
                                 </ul>
-                                <a href="https://www.nvidia.com/en-eu/software/nvidia-app/" target="_blank" rel="noopener noreferrer" class="external-link">Download NVIDIA App ↗</a>
                             </div>
                         </details>
 
@@ -102,7 +101,7 @@
                     <div class="upload-banner">
                         <div class="upload-text">
                             <h3>Process Data</h3>
-                            <p>Select the Performance and Latency logs.</p>
+                            <p>Select the FrameView Game and NVIDIA Latency logs.</p>
                             <button type="button" class="sample-data-link">Load Sample Data</button>
                         </div>
                         <label for="csvFile" class="upload-zone slim-upload-btn">
@@ -127,25 +126,39 @@
                     <div class="stats-header">MAX</div>
                 </div>
                 
-                <div class="stats-grid metric-row" data-metric="fps">
-                    <div class="stats-label"><div class="indicator" style="background:var(--c-fps)"></div> AVERAGE FPS</div>
-                    <div class="stats-val" id="min-fps">-</div>
-                    <div class="stats-val highlight" id="avg-fps">-</div>
-                    <div class="stats-val" id="max-fps">-</div>
-                </div>
-                
-                <div class="stats-grid metric-row" data-metric="lows">
-                    <div class="stats-label"><div class="indicator" style="background:var(--c-lows)"></div> 1% LOW FPS</div>
-                    <div class="stats-val" id="min-lows">-</div>
-                    <div class="stats-val highlight" id="avg-lows">-</div>
-                    <div class="stats-val" id="max-lows">-</div>
-                </div>
-                
                 <div class="stats-grid metric-row" data-metric="tot">
                     <div class="stats-label"><div class="indicator" style="background:var(--c-totlat)"></div> TOTAL LATENCY</div>
                     <div class="stats-val" id="min-tot">-</div>
                     <div class="stats-val highlight" id="avg-tot">-</div>
                     <div class="stats-val" id="max-tot">-</div>
+                </div>
+                
+                <div class="stats-grid metric-row disabled" data-metric="disp">
+                    <div class="stats-label"><div class="indicator" style="background:var(--c-pcdisp)"></div> DISPLAY LATENCY</div>
+                    <div class="stats-val" id="min-disp">-</div>
+                    <div class="stats-val highlight" id="avg-disp">-</div>
+                    <div class="stats-val" id="max-disp">-</div>
+                </div>
+                
+                <div class="stats-grid metric-row disabled" data-metric="rnd">
+                    <div class="stats-label"><div class="indicator" style="background:var(--c-rndlat)"></div> RENDER LATENCY</div>
+                    <div class="stats-val" id="min-rnd">-</div>
+                    <div class="stats-val highlight" id="avg-rnd">-</div>
+                    <div class="stats-val" id="max-rnd">-</div>
+                </div>
+                
+                <div class="stats-grid metric-row disabled" data-metric="game">
+                    <div class="stats-label"><div class="indicator" style="background:var(--c-gamelat)"></div> GAME LATENCY</div>
+                    <div class="stats-val" id="min-game">-</div>
+                    <div class="stats-val highlight" id="avg-game">-</div>
+                    <div class="stats-val" id="max-game">-</div>
+                </div>
+
+                <div class="stats-grid metric-row disabled" data-metric="os">
+                    <div class="stats-label"><div class="indicator" style="background:var(--c-oslat)"></div> OS LATENCY</div>
+                    <div class="stats-val" id="min-os">-</div>
+                    <div class="stats-val highlight" id="avg-os">-</div>
+                    <div class="stats-val" id="max-os">-</div>
                 </div>
 
                 <div class="stats-grid metric-row disabled" data-metric="peri">
@@ -153,27 +166,6 @@
                     <div class="stats-val" id="min-peri">-</div>
                     <div class="stats-val highlight" id="avg-peri">-</div>
                     <div class="stats-val" id="max-peri">-</div>
-                </div>
-
-                <div class="stats-grid metric-row disabled" data-metric="disp">
-                    <div class="stats-label"><div class="indicator" style="background:var(--c-pcdisp)"></div> DISPLAY LATENCY</div>
-                    <div class="stats-val" id="min-disp">-</div>
-                    <div class="stats-val highlight" id="avg-disp">-</div>
-                    <div class="stats-val" id="max-disp">-</div>
-                </div>
-
-                <div class="stats-grid metric-row disabled" data-metric="rnd">
-                    <div class="stats-label"><div class="indicator" style="background:var(--c-rndlat)"></div> RENDER LATENCY</div>
-                    <div class="stats-val" id="min-rnd">-</div>
-                    <div class="stats-val highlight" id="avg-rnd">-</div>
-                    <div class="stats-val" id="max-rnd">-</div>
-                </div>
-
-                <div class="stats-grid metric-row disabled" data-metric="cpu">
-                    <div class="stats-label"><div class="indicator" id="ind-cpu" style="background:var(--c-pclat)"></div> COMPUTE LATENCY</div>
-                    <div class="stats-val" id="min-cpu">-</div>
-                    <div class="stats-val highlight" id="avg-cpu">-</div>
-                    <div class="stats-val" id="max-cpu">-</div>
                 </div>
             </section>
 
@@ -203,12 +195,11 @@
                     <select id="sortSelect">
                         <option value="ts">Chronological</option>
                         <option value="tot">Total Latency</option>
-                        <option value="fps">Average FPS</option>
-                        <option value="lows">1% Low FPS</option>
-                        <option value="peri">Peripheral Latency</option>
                         <option value="disp">Display Latency</option>
                         <option value="rnd">Render Latency</option>
-                        <option value="cpu">Compute Latency</option>
+                        <option value="game">Game Latency</option>
+                        <option value="os">OS Latency</option>
+                        <option value="peri">Peripheral Latency</option>
                     </select>
                 </div>
 
@@ -231,25 +222,6 @@
                         <div id="rangeTrack" class="range-track-highlight"></div>
                         <input type="range" id="minRange" class="range-slider" min="0" max="0" value="0" aria-label="Minimum timespan">
                         <input type="range" id="maxRange" class="range-slider" min="0" max="0" value="0" aria-label="Maximum timespan">
-                    </div>
-                </div>
-
-                <div class="split-row" style="margin-top: 35px;">
-                    <div class="control-group">
-                        <label class="control-label">MAX FPS</label>
-                        <div class="number-input-wrapper">
-                            <button type="button" class="num-btn minus" data-target="maxFPSInput">−</button>
-                            <input type="number" id="maxFPSInput" value="600" step="50" min="0">
-                            <button type="button" class="num-btn plus" data-target="maxFPSInput">+</button>
-                        </div>
-                    </div>
-                    <div class="control-group">
-                        <label class="control-label">MAX LATENCY (ms)</label>
-                        <div class="number-input-wrapper">
-                            <button type="button" class="num-btn minus" data-target="maxLatInput">−</button>
-                            <input type="number" id="maxLatInput" value="30" step="5" min="0">
-                            <button type="button" class="num-btn plus" data-target="maxLatInput">+</button>
-                        </div>
                     </div>
                 </div>
             </section>
