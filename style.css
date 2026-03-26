@@ -22,8 +22,6 @@
     --c-pclat: #44444a; /* Compute (Bottom/Darkest) */
 
     --c-totlat: #ffffff; /* Total Outline */
-
-    --easing: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 ::selection {
@@ -97,7 +95,6 @@ body.loaded #loader {
     gap: 1px;
     background-color: var(--line-grey);
     opacity: 0;
-    transition: opacity 0.8s var(--easing);
 }
 
 body.loaded .main-grid {
@@ -155,10 +152,6 @@ body.loaded .main-grid {
     letter-spacing: 1px;
 }
 
-#homeBtn {
-    transition: color 0.4s var(--easing);
-}
-
 #homeBtn:hover {
     color: var(--dim);
 }
@@ -171,7 +164,6 @@ body.loaded .main-grid {
     padding: 12px 0;
     border-bottom: 1px solid var(--line-grey);
     cursor: pointer;
-    transition: background 0.4s var(--easing);
 }
 
 .stats-grid:hover {
@@ -229,7 +221,6 @@ body.loaded .main-grid {
     text-align: center;
     cursor: pointer;
     border-radius: 0;
-    transition: border-color 0.4s var(--easing);
     background: transparent;
 }
 
@@ -242,7 +233,6 @@ body.loaded .main-grid {
     color: var(--dim);
     text-transform: uppercase;
     letter-spacing: 2px;
-    transition: color 0.4s var(--easing);
 }
 
 .upload-zone:hover span {
@@ -275,7 +265,6 @@ input[type="number"] {
     outline: none;
     width: 100%;
     border-radius: 0;
-    transition: border-color 0.4s var(--easing), color 0.4s var(--easing);
 }
 
 select option {
@@ -308,7 +297,6 @@ input[type="number"]::-webkit-outer-spin-button {
     align-items: center;
     border: 1px solid var(--line-grey);
     background: transparent;
-    transition: border-color 0.4s var(--easing);
     height: 44px;
 }
 
@@ -335,7 +323,6 @@ input[type="number"]::-webkit-outer-spin-button {
     padding: 0 18px;
     font-size: 1rem;
     cursor: pointer;
-    transition: color 0.4s var(--easing), background 0.4s var(--easing);
     height: 100%;
     display: flex;
     align-items: center;
@@ -402,7 +389,6 @@ input[type="number"]::-webkit-outer-spin-button {
     cursor: ew-resize;
     border: none;
     z-index: 3;
-    transition: background 0.2s var(--easing);
 }
 
 .range-slider::-moz-range-thumb {
@@ -415,7 +401,6 @@ input[type="number"]::-webkit-outer-spin-button {
     cursor: ew-resize;
     border: none;
     z-index: 3;
-    transition: background 0.2s var(--easing);
 }
 
 .range-slider:hover::-webkit-slider-thumb {
@@ -506,7 +491,6 @@ input[type="number"]::-webkit-outer-spin-button {
     color: var(--dimmer);
     font-size: 1rem;
     font-weight: 300;
-    transition: color 0.4s var(--easing);
 }
 
 .step-accordion[open] summary::after {
@@ -530,7 +514,6 @@ input[type="number"]::-webkit-outer-spin-button {
     justify-content: center;
     font-size: 0.55rem;
     flex-shrink: 0;
-    transition: border-color 0.4s var(--easing), color 0.4s var(--easing);
 }
 
 .step-accordion:hover .step-num,
@@ -546,7 +529,6 @@ input[type="number"]::-webkit-outer-spin-button {
     margin: 0;
     text-transform: uppercase;
     letter-spacing: 2px;
-    transition: color 0.4s var(--easing);
 }
 
 .step-accordion:hover h3,
@@ -601,7 +583,6 @@ input[type="number"]::-webkit-outer-spin-button {
     display: inline-block;
     border-bottom: 1px solid var(--dimmer);
     padding-bottom: 4px;
-    transition: border-color 0.4s var(--easing), color 0.4s var(--easing);
 }
 
 .external-link:hover {
@@ -648,7 +629,6 @@ input[type="number"]::-webkit-outer-spin-button {
     font-family: "JetBrains Mono", monospace;
     display: inline-block;
     margin-top: 20px;
-    transition: color 0.4s var(--easing), border-color 0.4s var(--easing);
 }
 
 .sample-data-link:hover {
@@ -677,7 +657,6 @@ input[type="number"]::-webkit-outer-spin-button {
     letter-spacing: 2px;
     border-radius: 0;
     z-index: 10;
-    transition: border-color 0.4s var(--easing), color 0.4s var(--easing);
     background: var(--bg);
 }
 
@@ -752,7 +731,6 @@ body.has-data .chart-wrapper {
     font-family: "JetBrains Mono", monospace;
     font-size: 0.65rem;
     cursor: pointer;
-    transition: border-color 0.4s var(--easing), color 0.4s var(--easing), background 0.4s var(--easing);
     width: 100%;
     text-transform: uppercase;
     letter-spacing: 2px;
@@ -778,7 +756,6 @@ body.has-data .chart-wrapper {
 .ui-disabled {
     opacity: 0.25;
     pointer-events: none;
-    transition: opacity 0.4s var(--easing);
 }
 
 /* --- Bespoke Dropdown Component --- */
@@ -797,7 +774,6 @@ body.has-data .chart-wrapper {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    transition: border-color 0.4s var(--easing), color 0.4s var(--easing);
     background: transparent;
 }
 
@@ -818,7 +794,6 @@ body.has-data .chart-wrapper {
     border-right: 1px solid var(--dimmer);
     border-bottom: 1px solid var(--line-grey);
     transform: translateY(-2px) rotate(45deg);
-    transition: transform 0.4s var(--easing);
 }
 
 .custom-select-wrapper.open .custom-select-display::after {
@@ -849,7 +824,6 @@ body.has-data .chart-wrapper {
     font-size: 0.7rem;
     color: var(--dimmer);
     cursor: pointer;
-    transition: background 0.2s var(--easing), color 0.2s var(--easing);
 }
 
 .custom-option:hover,

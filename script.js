@@ -516,7 +516,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 devicePixelRatio: Math.max(window.devicePixelRatio || 1, 4),
                 responsive: true,
                 maintainAspectRatio: false,
-                animation: { duration: 400, easing: "easeOutQuart" },
+                animation: false,
                 interaction: { mode: "y", intersect: false },
                 layout: { padding: { left: 50, right: 50, top: 50, bottom: 20 } },
                 plugins: {
@@ -670,43 +670,49 @@ document.addEventListener("DOMContentLoaded", () => {
         const colRnd = session.perf.cols.find((c) => c.toLowerCase().includes("render latency"));
         const colPC = session.perf.cols.find((c) => c.toLowerCase().includes("pc latency"));
         const colPCD = session.lat.cols.find((c) => c.toLowerCase().includes("pc + display"));
+        const colSys = session.lat.cols.find((c) => c.toLowerCase().includes("system latency"));
+        const colMouse = session.lat.cols.find((c) => c.toLowerCase().includes("mouse"));
 
-        const prepPerf = (col) => {
-            let d = pData
-                .filter((r) => r[tP] > mMin && r[tP] < mMax)
-                .map((r) => ({ x: r[tP], y: r[col] }));
-            d.unshift({ x: mMin, y: getInterpolatedValue(pData, mMin, col, tP) });
-            d.push({ x: mMax, y: getInterpolatedValue(pData, mMax, col, tP) });
-            return d.sort((a, b) => a.x - b.x);
-        };
-        
-        const activeFPS = prepPerf(colFPS);
-        const activeLow = prepPerf(colLow);
-        const activeRnd = prepPerf(colRnd);
-        const activePC = prepPerf(colPC);
-        
-        const valPCD = [];
-        const valTot = [];
         const mBase = parseFloat(dom.mouseInput.value) || 0;
         
+        const arrFPS = [], arrLow = [], arrRnd = [], arrCpu = [], arrDisp = [], arrPeri = [], arrTot = [];
+        const dataFPS = [], dataLow = [], dataRnd = [], dataCpu = [], dataDisp = [], dataPeri = [], dataTot = [];
+
+        // Master loop syncing perfectly to the high-frequency latency timeframe 
         lData.slice(startIdx, endIdx + 1).forEach((r) => {
-            const colSys = session.lat.cols.find((c) => c.toLowerCase().includes("system latency"));
-            const colMouse = session.lat.cols.find((c) => c.toLowerCase().includes("mouse"));
+            const t = r[tL];
+            
+            // Interpolate perf data to seamlessly align matching X values for the stack
+            const fps = getInterpolatedValue(pData, t, colFPS, tP) || 0;
+            const low = getInterpolatedValue(pData, t, colLow, tP) || 0;
+            const rnd = getInterpolatedValue(pData, t, colRnd, tP) || 0;
+            const pc = getInterpolatedValue(pData, t, colPC, tP) || 0;
+            
+            const pcd = r[colPCD] || 0;
             const isRealMouse = colSys && r[colSys] && r[colMouse] > 0;
-            valPCD.push({ x: r[tL], y: r[colPCD] });
-            valTot.push({ x: r[tL], y: isRealMouse ? r[colSys] : r[colPCD] + mBase + mBase * r._jitter });
+            const sys = isRealMouse ? r[colSys] : pcd + mBase + mBase * r._jitter;
+
+            // Compute true isolated components
+            const isoCpu = Math.max(0, pc - rnd);
+            const isoRnd = Math.max(0, rnd);
+            const isoDisp = Math.max(0, pcd - pc);
+            const isoPeri = Math.max(0, sys - pcd);
+            const isoTot = Math.max(0, sys);
+
+            arrFPS.push(fps); arrLow.push(low);
+            arrCpu.push(isoCpu); arrRnd.push(isoRnd); arrDisp.push(isoDisp); arrPeri.push(isoPeri); arrTot.push(isoTot);
+
+            dataFPS.push({ x: t, y: fps });
+            dataLow.push({ x: t, y: low });
+            dataCpu.push({ x: t, y: isoCpu });
+            dataRnd.push({ x: t, y: isoRnd });
+            dataDisp.push({ x: t, y: isoDisp });
+            dataPeri.push({ x: t, y: isoPeri });
+            dataTot.push({ x: t, y: isoTot });
         });
 
-        const arrFPS = activeFPS.map((d) => d.y);
-        const arrLow = activeLow.map((d) => d.y);
-        const arrRnd = activeRnd.map((d) => d.y);
-        const arrCpu = activePC.map((d, i) => d.y - (activeRnd[i] ? activeRnd[i].y : 0));
-        const arrDisp = valPCD.map((d) => d.y - getInterpolatedValue(pData, d.x, colPC, tP));
-        const arrPeri = valTot.map((d, i) => d.y - (valPCD[i] ? valPCD[i].y : 0));
-        const arrTot = valTot.map((d) => d.y);
-
         const datasets = [];
-        const pushLine = (id, label, avg, data, color, bg, fillMode) => {
+        const pushLine = (id, label, avg, data, color, bg, fillMode, stackId) => {
             datasets.push({
                 _isToggled: state.visibility[id],
                 hidden: !state.visibility[id],
@@ -720,27 +726,28 @@ document.addEventListener("DOMContentLoaded", () => {
                 borderWidth: 1,
                 pointRadius: 0,
                 tension: 0,
+                stack: stackId
             });
         };
 
-        pushLine("fps", "AVERAGE FPS", getAverage(arrFPS), activeFPS, "#10b981", "transparent", false);
-        pushLine("lows", "1% LOW FPS", getAverage(arrLow), activeLow, "#059669", "transparent", false);
+        pushLine("fps", "AVERAGE FPS", getAverage(arrFPS), dataFPS, "#10b981", "transparent", false, "fps");
+        pushLine("lows", "1% LOW FPS", getAverage(arrLow), dataLow, "#059669", "transparent", false, "lows");
 
         // Stacking order: Compute (bottom) -> Render -> Display -> Peripheral (top)
         const activeLatencyLayers = [
-            { id: "cpu", label: "COMPUTE LATENCY", avg: getAverage(arrCpu), data: activePC.map((d, i) => ({ x: d.x, y: d.y - (activeRnd[i] ? activeRnd[i].y : 0) })), color: "#44444a", bg: "rgba(68, 68, 74, 0.15)" },
-            { id: "rnd", label: "RENDER LATENCY", avg: getAverage(arrRnd), data: activePC, color: "#71717a", bg: "rgba(113, 113, 122, 0.15)" },
-            { id: "disp", label: "DISPLAY LATENCY", avg: getAverage(arrDisp), data: valPCD, color: "#a1a1aa", bg: "rgba(161, 161, 170, 0.15)" },
-            { id: "peri", label: "PERIPHERAL LATENCY", avg: getAverage(arrPeri), data: valTot, color: "#d4d4d8", bg: "rgba(212, 212, 216, 0.15)" },
+            { id: "cpu", label: "COMPUTE LATENCY", avg: getAverage(arrCpu), data: dataCpu, color: "#44444a", bg: "rgba(68, 68, 74, 0.15)" },
+            { id: "rnd", label: "RENDER LATENCY", avg: getAverage(arrRnd), data: dataRnd, color: "#71717a", bg: "rgba(113, 113, 122, 0.15)" },
+            { id: "disp", label: "DISPLAY LATENCY", avg: getAverage(arrDisp), data: dataDisp, color: "#a1a1aa", bg: "rgba(161, 161, 170, 0.15)" },
+            { id: "peri", label: "PERIPHERAL LATENCY", avg: getAverage(arrPeri), data: dataPeri, color: "#d4d4d8", bg: "rgba(212, 212, 216, 0.15)" },
         ];
 
         let prevIdx = "origin";
         activeLatencyLayers.forEach((layer) => {
-            pushLine(layer.id, layer.label, layer.avg, layer.data, layer.color, layer.bg, prevIdx);
-            prevIdx = datasets.length - 1;
+            pushLine(layer.id, layer.label, layer.avg, layer.data, layer.color, layer.bg, prevIdx, 'latency');
+            prevIdx = datasets.length - 1; 
         });
         
-        pushLine("tot", "TOTAL LATENCY", getAverage(arrTot), valTot, "#ffffff", "transparent", false);
+        pushLine("tot", "TOTAL LATENCY", getAverage(arrTot), dataTot, "#ffffff", "transparent", false, "total");
 
         const ctx = document.getElementById("myChart").getContext("2d");
         if (state.chart) state.chart.destroy();
@@ -829,6 +836,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     yL: {
                         type: "linear",
                         position: "left",
+                        stacked: false,
                         min: 0,
                         max: fM,
                         ticks: { color: "#71717a", font: { size: 10 }, callback: (v) => fmt(v) },
@@ -839,6 +847,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     yR: {
                         type: "linear",
                         position: "right",
+                        stacked: true,
                         min: 0,
                         max: lM,
                         ticks: { color: "#71717a", font: { size: 10 }, callback: (v) => fmt(v) },
