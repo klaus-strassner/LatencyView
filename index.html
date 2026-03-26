@@ -18,6 +18,8 @@
     <meta property="twitter:title" content="Latency View">
     <meta property="twitter:description" content="Sub-millisecond telemetry visualization for NVIDIA Reflex Latency Analyzer.">
 
+    <link rel="icon" type="image/png" href="assets/logo_white_transparent.png">
+
     <title>Latency View</title>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js" defer></script>
@@ -35,7 +37,9 @@
         <section class="chart-cell">
             <button type="button" class="copy-btn" id="copyGraphBtn">Copy Graph</button>
 
-            <div class="title" id="homeBtn" style="cursor: pointer;" title="Return to Setup">Latency View<span id="chartSubTitle" class="subtitle"></span></div>
+            <div class="title" id="homeBtn" style="cursor: pointer;" title="Return to Setup">
+                Latency View<span id="chartSubTitle" class="subtitle"></span>
+            </div>
 
             <div class="guide-wrapper" id="guideWrapper">
                 <div class="guide-content wide-guide">
@@ -93,7 +97,6 @@
                                 </ul>
                             </div>
                         </details>
-
                     </div>
 
                     <div class="upload-banner">
@@ -106,11 +109,12 @@
                             <span>Select Files</span>
                         </label>
                     </div>
-
                 </div>
             </div>
 
-            <div class="chart-wrapper" id="chartWrapper"><canvas id="myChart"></canvas></div>
+            <div class="chart-wrapper" id="chartWrapper">
+                <canvas id="myChart"></canvas>
+            </div>
         </section>
 
         <aside class="sidebar">
@@ -122,13 +126,55 @@
                     <div class="stats-header">AVG</div>
                     <div class="stats-header">MAX</div>
                 </div>
-                <div class="stats-grid metric-row" data-metric="fps"><div class="stats-label"><div class="indicator" style="background:var(--c-fps)"></div> AVERAGE FPS</div><div class="stats-val" id="min-fps">-</div><div class="stats-val highlight" id="avg-fps">-</div><div class="stats-val" id="max-fps">-</div></div>
-                <div class="stats-grid metric-row" data-metric="lows"><div class="stats-label"><div class="indicator" style="background:var(--c-lows)"></div> 1% LOW FPS</div><div class="stats-val" id="min-lows">-</div><div class="stats-val highlight" id="avg-lows">-</div><div class="stats-val" id="max-lows">-</div></div>
-                <div class="stats-grid metric-row" data-metric="tot"><div class="stats-label"><div class="indicator" style="background:var(--c-totlat)"></div> TOTAL LATENCY</div><div class="stats-val" id="min-tot">-</div><div class="stats-val highlight" id="avg-tot">-</div><div class="stats-val" id="max-tot">-</div></div>
-                <div class="stats-grid metric-row disabled" data-metric="peri"><div class="stats-label"><div class="indicator" style="background:var(--c-syslat)"></div> PERIPHERAL LATENCY</div><div class="stats-val" id="min-peri">-</div><div class="stats-val highlight" id="avg-peri">-</div><div class="stats-val" id="max-peri">-</div></div>
-                <div class="stats-grid metric-row disabled" data-metric="disp"><div class="stats-label"><div class="indicator" style="background:var(--c-pcdisp)"></div> DISPLAY LATENCY</div><div class="stats-val" id="min-disp">-</div><div class="stats-val highlight" id="avg-disp">-</div><div class="stats-val" id="max-disp">-</div></div>
-                <div class="stats-grid metric-row disabled" data-metric="rnd"><div class="stats-label"><div class="indicator" style="background:var(--c-rndlat)"></div> RENDER LATENCY</div><div class="stats-val" id="min-rnd">-</div><div class="stats-val highlight" id="avg-rnd">-</div><div class="stats-val" id="max-rnd">-</div></div>
-                <div class="stats-grid metric-row disabled" data-metric="cpu"><div class="stats-label"><div class="indicator" id="ind-cpu" style="background:var(--c-pclat)"></div> COMPUTE LATENCY</div><div class="stats-val" id="min-cpu">-</div><div class="stats-val highlight" id="avg-cpu">-</div><div class="stats-val" id="max-cpu">-</div></div>
+                
+                <div class="stats-grid metric-row" data-metric="fps">
+                    <div class="stats-label"><div class="indicator" style="background:var(--c-fps)"></div> AVERAGE FPS</div>
+                    <div class="stats-val" id="min-fps">-</div>
+                    <div class="stats-val highlight" id="avg-fps">-</div>
+                    <div class="stats-val" id="max-fps">-</div>
+                </div>
+                
+                <div class="stats-grid metric-row" data-metric="lows">
+                    <div class="stats-label"><div class="indicator" style="background:var(--c-lows)"></div> 1% LOW FPS</div>
+                    <div class="stats-val" id="min-lows">-</div>
+                    <div class="stats-val highlight" id="avg-lows">-</div>
+                    <div class="stats-val" id="max-lows">-</div>
+                </div>
+                
+                <div class="stats-grid metric-row" data-metric="tot">
+                    <div class="stats-label"><div class="indicator" style="background:var(--c-totlat)"></div> TOTAL LATENCY</div>
+                    <div class="stats-val" id="min-tot">-</div>
+                    <div class="stats-val highlight" id="avg-tot">-</div>
+                    <div class="stats-val" id="max-tot">-</div>
+                </div>
+                
+                <div class="stats-grid metric-row disabled" data-metric="peri">
+                    <div class="stats-label"><div class="indicator" style="background:var(--c-syslat)"></div> PERIPHERAL LATENCY</div>
+                    <div class="stats-val" id="min-peri">-</div>
+                    <div class="stats-val highlight" id="avg-peri">-</div>
+                    <div class="stats-val" id="max-peri">-</div>
+                </div>
+                
+                <div class="stats-grid metric-row disabled" data-metric="disp">
+                    <div class="stats-label"><div class="indicator" style="background:var(--c-pcdisp)"></div> DISPLAY LATENCY</div>
+                    <div class="stats-val" id="min-disp">-</div>
+                    <div class="stats-val highlight" id="avg-disp">-</div>
+                    <div class="stats-val" id="max-disp">-</div>
+                </div>
+                
+                <div class="stats-grid metric-row disabled" data-metric="rnd">
+                    <div class="stats-label"><div class="indicator" style="background:var(--c-rndlat)"></div> RENDER LATENCY</div>
+                    <div class="stats-val" id="min-rnd">-</div>
+                    <div class="stats-val highlight" id="avg-rnd">-</div>
+                    <div class="stats-val" id="max-rnd">-</div>
+                </div>
+                
+                <div class="stats-grid metric-row disabled" data-metric="cpu">
+                    <div class="stats-label"><div class="indicator" id="ind-cpu" style="background:var(--c-pclat)"></div> COMPUTE LATENCY</div>
+                    <div class="stats-val" id="min-cpu">-</div>
+                    <div class="stats-val highlight" id="avg-cpu">-</div>
+                    <div class="stats-val" id="max-cpu">-</div>
+                </div>
             </section>
 
             <section class="sidebar-section no-border">
