@@ -11,12 +11,13 @@
     --accent: #ffffff;
     --warn: #d97757;
 
-    /* Latency Stack: Top to Bottom (Disp, Rnd, Game, OS, Peri) */
-    --c-pcdisp: #d4d4d8;  /* Display (Top) */
-    --c-rndlat: #a1a1aa;  /* Render */
-    --c-gamelat: #71717a; /* Game */
-    --c-oslat: #52525b;   /* OS */
-    --c-syslat: #44444a;  /* Peripheral (Bottom/Darkest) */
+    /* "Ghost Slate" Brand Stack - Highly Desaturated Accents */
+    --c-pcdisp: #8a4f4f;  /* Ghost ROG Red */
+    --c-schedlat: #7a5c7a; /* Ghost Amethyst */
+    --c-rndlat: #6b8a4f;  /* Ghost NVIDIA Green */
+    --c-gamelat: #8a6b4f; /* Ghost Ryzen Orange */
+    --c-oslat: #4f6b8a;   /* Ghost Windows Blue */
+    --c-syslat: #8a804f;  /* Ghost Endgame Gear Yellow */
 
     --c-totlat: #ffffff; /* Total Outline */
 }

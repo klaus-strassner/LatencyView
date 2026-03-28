@@ -101,7 +101,7 @@
                     <div class="upload-banner">
                         <div class="upload-text">
                             <h3>Process Data</h3>
-                            <p>Select the FrameView Game and NVIDIA Latency logs.</p>
+                            <p>Select the FrameView and NVIDIA Latency logs.</p>
                             <button type="button" class="sample-data-link">Load Sample Data</button>
                         </div>
                         <label for="csvFile" class="upload-zone slim-upload-btn">
@@ -126,43 +126,50 @@
                     <div class="stats-header">MAX</div>
                 </div>
                 
-                <div class="stats-grid metric-row" data-metric="tot">
-                    <div class="stats-label"><div class="indicator" style="background:var(--c-totlat)"></div> TOTAL LATENCY</div>
+                <div class="stats-grid metric-row disabled" data-metric="tot">
+                    <div class="stats-label"><div class="indicator" style="background:var(--c-totlat)"></div> SYS LATENCY</div>
                     <div class="stats-val" id="min-tot">-</div>
                     <div class="stats-val highlight" id="avg-tot">-</div>
                     <div class="stats-val" id="max-tot">-</div>
                 </div>
                 
-                <div class="stats-grid metric-row disabled" data-metric="disp">
-                    <div class="stats-label"><div class="indicator" style="background:var(--c-pcdisp)"></div> DISPLAY LATENCY</div>
+                <div class="stats-grid metric-row" data-metric="disp">
+                    <div class="stats-label"><div class="indicator" style="background:var(--c-pcdisp)"></div> DISPLAY</div>
                     <div class="stats-val" id="min-disp">-</div>
                     <div class="stats-val highlight" id="avg-disp">-</div>
                     <div class="stats-val" id="max-disp">-</div>
                 </div>
                 
-                <div class="stats-grid metric-row disabled" data-metric="rnd">
-                    <div class="stats-label"><div class="indicator" style="background:var(--c-rndlat)"></div> RENDER LATENCY</div>
+                <div class="stats-grid metric-row" data-metric="sched">
+                    <div class="stats-label"><div class="indicator" style="background: var(--c-schedlat);"></div> SCHEDULING</div>
+                    <div class="stats-val" id="min-sched">-</div>
+                    <div class="stats-val highlight" id="avg-sched">-</div>
+                    <div class="stats-val" id="max-sched">-</div>
+                </div>
+                
+                <div class="stats-grid metric-row" data-metric="rnd">
+                    <div class="stats-label"><div class="indicator" style="background:var(--c-rndlat)"></div> RENDER</div>
                     <div class="stats-val" id="min-rnd">-</div>
                     <div class="stats-val highlight" id="avg-rnd">-</div>
                     <div class="stats-val" id="max-rnd">-</div>
                 </div>
                 
-                <div class="stats-grid metric-row disabled" data-metric="game">
-                    <div class="stats-label"><div class="indicator" style="background:var(--c-gamelat)"></div> GAME LATENCY</div>
+                <div class="stats-grid metric-row" data-metric="game">
+                    <div class="stats-label"><div class="indicator" style="background:var(--c-gamelat)"></div> GAME</div>
                     <div class="stats-val" id="min-game">-</div>
                     <div class="stats-val highlight" id="avg-game">-</div>
                     <div class="stats-val" id="max-game">-</div>
                 </div>
 
-                <div class="stats-grid metric-row disabled" data-metric="os">
-                    <div class="stats-label"><div class="indicator" style="background:var(--c-oslat)"></div> OS LATENCY</div>
+                <div class="stats-grid metric-row" data-metric="os">
+                    <div class="stats-label"><div class="indicator" style="background:var(--c-oslat)"></div> OS</div>
                     <div class="stats-val" id="min-os">-</div>
                     <div class="stats-val highlight" id="avg-os">-</div>
                     <div class="stats-val" id="max-os">-</div>
                 </div>
 
-                <div class="stats-grid metric-row disabled" data-metric="peri">
-                    <div class="stats-label"><div class="indicator" style="background:var(--c-syslat)"></div> PERIPHERAL LATENCY</div>
+                <div class="stats-grid metric-row" data-metric="peri">
+                    <div class="stats-label"><div class="indicator" style="background:var(--c-syslat)"></div> PERIPHERAL</div>
                     <div class="stats-val" id="min-peri">-</div>
                     <div class="stats-val highlight" id="avg-peri">-</div>
                     <div class="stats-val" id="max-peri">-</div>
@@ -196,6 +203,7 @@
                         <option value="ts">Chronological</option>
                         <option value="tot">Total Latency</option>
                         <option value="disp">Display Latency</option>
+                        <option value="sched">Scheduling Latency</option>
                         <option value="rnd">Render Latency</option>
                         <option value="game">Game Latency</option>
                         <option value="os">OS Latency</option>

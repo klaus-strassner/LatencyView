@@ -3,12 +3,13 @@ document.addEventListener("DOMContentLoaded", () => {
     const state = {
         viewMode: "single",
         visibility: {
-            game: false,
-            os: false,
-            rnd: false,
-            disp: false,
-            peri: false,
-            tot: true,
+            game: true,
+            os: true,
+            rnd: true,
+            sched: true, 
+            disp: true,
+            peri: true,
+            tot: false, // Default disabled, calculated purely from data sum when on
         },
         sort: { metric: "ts", dir: "asc" },
         pairedSessions: {},
@@ -38,7 +39,7 @@ document.addEventListener("DOMContentLoaded", () => {
         sortDirToggle: document.getElementById("sortDirToggle"),
     };
 
-    const metricHierarchy = ["tot", "disp", "rnd", "game", "os", "peri"];
+    const metricHierarchy = ["tot", "disp", "sched", "rnd", "game", "os", "peri"];
 
     function getOptimalSortDir(metric) {
         return "asc";
@@ -218,7 +219,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function getInterpolatedValue(data, time, col, timeCol) {
-        if (!data || !data.length) return null;
+        if (!data || !data.length || !col) return null;
         
         let low = 0;
         let high = data.length - 1;
@@ -249,7 +250,12 @@ document.addEventListener("DOMContentLoaded", () => {
         return left[col] + (right[col] - left[col]) * ((time - left[timeCol]) / (right[timeCol] - left[timeCol]));
     }
 
-    // --- File Handling ---
+    function getNormalizedColumn(cols, keyword) {
+        const normalizedKeyword = keyword.toLowerCase().replace(/[^a-z0-9+]/g, '');
+        return cols.find(c => c.toLowerCase().replace(/[^a-z0-9+]/g, '').includes(normalizedKeyword));
+    }
+
+    // --- File Handling & High-Performance Pre-calculation ---
     async function handleFiles(files) {
         const list = Array.from(files).filter((f) => f.name.endsWith(".csv"));
         const parsePromises = list.map(
@@ -305,7 +311,7 @@ document.addEventListener("DOMContentLoaded", () => {
             if (session.lat && session.game) {
                 const lData = session.lat.data, gData = session.game.data;
                 const tL = session.lat.cols[0];
-                const tG = session.game.cols.find(c => c.toLowerCase().includes('timeinseconds'));
+                const tG = getNormalizedColumn(session.game.cols, 'timeinseconds');
 
                 const baseL = lData[0][tL];
                 lData.forEach(r => r._normTime = r[tL] - baseL);
@@ -313,23 +319,73 @@ document.addEventListener("DOMContentLoaded", () => {
                 const baseG = gData[0][tG];
                 gData.forEach(r => r._normTime = r[tG] - baseG);
 
-                const colPCD = session.lat.cols.find((c) => c.toLowerCase().includes("pc + display"));
-                const colMouse = session.lat.cols.find((c) => c.toLowerCase().includes("mouse"));
+                const colMouse = getNormalizedColumn(session.lat.cols, "mouse");
                 
-                session.hasMouseData = lData.some((r) => r[colMouse] > 0);
+                // Hardware Check
+                session.hasMouseData = lData.some((r) => {
+                    const mVal = r[colMouse];
+                    return mVal !== undefined && mVal !== null && mVal > 0;
+                });
+                
                 const uniqueTimeMap = new Map();
                 const maxTime = gData[gData.length - 1]._normTime;
 
-                // VALIDATION FILTER REMOVED: All rows within the timeframe are now included
                 lData.forEach((row) => {
                     const t = row._normTime;
                     if (t >= 0 && t <= maxTime) {
-                        row._jitter = Math.random() - 0.5;
                         if (!uniqueTimeMap.has(t)) uniqueTimeMap.set(t, row);
                     }
                 });
                 
                 session.cleanLat = Array.from(uniqueTimeMap.values()).sort((a, b) => a._normTime - b._normTime);
+                
+                // === PRE-CALCULATION PASS (Massive Performance Improvement) ===
+                const colPCD = getNormalizedColumn(session.lat.cols, "pc+display");
+                
+                const colGamePC = getNormalizedColumn(session.game.cols, "mspclatency");
+                const colGameRnd = getNormalizedColumn(session.game.cols, "msrenderpresentlatency");
+                const colGameApi = getNormalizedColumn(session.game.cols, "msinpresentapi");
+                const colGameDisp = getNormalizedColumn(session.game.cols, "msuntildisplayed");
+
+                let gIdx = 0;
+                const gLen = gData.length;
+
+                // Merge and interpolate arrays instantly via two-pointer sliding window
+                session.mergedData = session.cleanLat.map((r) => {
+                    const t = r._normTime;
+                    
+                    while (gIdx < gLen - 1 && gData[gIdx + 1]._normTime <= t) {
+                        gIdx++;
+                    }
+                    
+                    const left = gData[gIdx];
+                    const right = gIdx < gLen - 1 ? gData[gIdx + 1] : left;
+                    
+                    let f = 0;
+                    if (right._normTime !== left._normTime) {
+                        if (t <= left._normTime) f = 0;
+                        else if (t >= right._normTime) f = 1;
+                        else f = (t - left._normTime) / (right._normTime - left._normTime);
+                    }
+
+                    const interp = (col) => {
+                        if (!col) return 0;
+                        const lVal = left[col] || 0;
+                        const rVal = right[col] || 0;
+                        return lVal + (rVal - lVal) * f;
+                    };
+
+                    return {
+                        t: t,
+                        pc: interp(colGamePC),
+                        rnd: interp(colGameRnd),
+                        api: interp(colGameApi),
+                        untilDisp: interp(colGameDisp),
+                        pcd: r[colPCD] || 0,
+                        mouseRaw: r[colMouse]
+                    };
+                });
+
                 state.pairedSessions[group.displayTs] = session;
             }
         });
@@ -356,63 +412,51 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function renderCompareChart() {
         const rawKeys = Object.keys(state.pairedSessions);
-        const globalVals = { game: [], os: [], rnd: [], disp: [], peri: [], tot: [] };
+        const globalVals = { game: [], os: [], rnd: [], sched: [], disp: [], peri: [], tot: [] };
 
         let sessionData = rawKeys.map((ts) => {
             const session = state.pairedSessions[ts];
-            const lData = session.cleanLat, gData = session.game.data;
-            
-            const colPCD = session.lat.cols.find((c) => c.toLowerCase().includes("pc + display"));
-            const colSys = session.lat.cols.find((c) => c.toLowerCase().includes("system latency"));
-            const colMouse = session.lat.cols.find((c) => c.toLowerCase().includes("mouse"));
-            
-            const colGameFt = session.game.cols.find((c) => c.toLowerCase().includes("msbetweenpresents"));
-            const colGameRnd = session.game.cols.find((c) => c.toLowerCase().includes("msrenderpresentlatency"));
-            const colGamePC = session.game.cols.find((c) => c.toLowerCase().includes("mspclatency"));
-
-            let sumGame = 0, sumOs = 0, sumRnd = 0, sumDisp = 0, sumPeri = 0, sumTot = 0;
+            let sumGame = 0, sumOs = 0, sumRnd = 0, sumSched = 0, sumDisp = 0, sumPeri = 0;
             const mBase = parseFloat(dom.mouseInput.value) || 0;
             
-            lData.forEach((r) => {
-                const t = r._normTime;
-                
-                const ft = getInterpolatedValue(gData, t, colGameFt, '_normTime') || 0;
-                const rnd = getInterpolatedValue(gData, t, colGameRnd, '_normTime') || 0;
-                const pc = getInterpolatedValue(gData, t, colGamePC, '_normTime') || 0;
-                
-                const pcd = r[colPCD] || 0;
-                const isRealMouse = colSys && r[colSys] !== null && r[colMouse] > 0;
-                const sys = isRealMouse ? r[colSys] : pcd + mBase + mBase * r._jitter;
+            session.mergedData.forEach((r) => {
+                const hasReflexMouse = r.mouseRaw !== undefined && r.mouseRaw !== null && r.mouseRaw > 0;
+                const peri = hasReflexMouse ? r.mouseRaw : mBase;
 
-                const isoCpu = Math.max(0, pc - rnd);
-                const game = ft > 0 ? ft : 0;
-                const os = Math.max(0, isoCpu - game);
+                // The Pipeline Math
+                const game = Math.max(0, r.pc - r.untilDisp - r.api);
+                const os = Math.max(0, r.api);
+                const render = Math.max(0, r.rnd);
+                const sched = Math.max(0, r.untilDisp - r.rnd);
+                const disp = Math.max(0, r.pcd - r.pc);
 
                 sumGame += game;
                 sumOs += os;
-                sumRnd += Math.max(0, rnd);
-                sumDisp += Math.max(0, pcd - pc);
-                sumPeri += Math.max(0, sys - pcd);
-                sumTot += sys;
+                sumRnd += render;
+                sumSched += sched;
+                sumDisp += disp;
+                sumPeri += peri;
                 
                 globalVals.game.push(game);
                 globalVals.os.push(os);
-                globalVals.rnd.push(Math.max(0, rnd));
-                globalVals.disp.push(Math.max(0, pcd - pc));
-                globalVals.peri.push(Math.max(0, sys - pcd));
-                globalVals.tot.push(sys);
+                globalVals.rnd.push(render);
+                globalVals.sched.push(sched);
+                globalVals.disp.push(disp);
+                globalVals.peri.push(peri);
+                globalVals.tot.push(game + os + render + sched + disp + peri);
             });
             
-            const count = lData.length;
+            const count = session.mergedData.length;
             
             return {
                 ts: ts,
                 game: sumGame / count,
                 os: sumOs / count,
                 rnd: sumRnd / count,
+                sched: sumSched / count,
                 disp: sumDisp / count,
                 peri: sumPeri / count,
-                tot: sumTot / count,
+                tot: (sumGame + sumOs + sumRnd + sumSched + sumDisp + sumPeri) / count,
             };
         });
 
@@ -435,6 +479,7 @@ document.addEventListener("DOMContentLoaded", () => {
             if (state.visibility.rnd) s += d.rnd;
             if (state.visibility.game) s += d.game;
             if (state.visibility.os) s += d.os;
+            if (state.visibility.sched) s += d.sched;
             if (state.visibility.disp) s += d.disp;
             if (state.visibility.peri) s += d.peri;
             return s;
@@ -446,7 +491,7 @@ document.addEventListener("DOMContentLoaded", () => {
             if (latStack > maxLat) maxLat = latStack;
         });
 
-        const lM = (Math.floor(Math.max(0, maxLat) / 5) + 1) * 5;
+        const lM = (Math.floor(Math.max(0, maxLat || 10) / 2) + 1) * 2;
         const datasets = [];
         
         const pushBar = (id, label, stack, xAxisID, border, bg, dataOverride = null) => {
@@ -466,167 +511,178 @@ document.addEventListener("DOMContentLoaded", () => {
             });
         };
 
-        const hasSubLats = state.visibility.rnd || state.visibility.game || state.visibility.os || state.visibility.disp || state.visibility.peri;
+        const hasSubLats = state.visibility.rnd || state.visibility.game || state.visibility.os || state.visibility.sched || state.visibility.disp || state.visibility.peri;
 
-        pushBar("peri", "PERIPHERAL LATENCY", "lat", "x", "#44444a", "rgba(68, 68, 74, 0.15)");
-        pushBar("os", "OS LATENCY", "lat", "x", "#52525b", "rgba(82, 82, 91, 0.15)");
-        pushBar("game", "GAME LATENCY", "lat", "x", "#71717a", "rgba(113, 113, 122, 0.15)");
-        pushBar("rnd", "RENDER LATENCY", "lat", "x", "#a1a1aa", "rgba(161, 161, 170, 0.15)");
-        pushBar("disp", "DISPLAY LATENCY", "lat", "x", "#d4d4d8", "rgba(212, 212, 216, 0.15)");
+        pushBar("peri", "PERIPHERAL LATENCY", "lat", "x", "#8a804f", "rgba(138, 128, 79, 0.08)");
+        pushBar("os", "OS LATENCY", "lat", "x", "#4f6b8a", "rgba(79, 107, 138, 0.08)");
+        pushBar("game", "GAME LATENCY", "lat", "x", "#8a6b4f", "rgba(138, 107, 79, 0.08)");
+        pushBar("rnd", "RENDER LATENCY", "lat", "x", "#6b8a4f", "rgba(107, 138, 79, 0.08)");
+        pushBar("sched", "SCHEDULING LATENCY", "lat", "x", "#7a5c7a", "rgba(122, 92, 122, 0.08)"); 
+        pushBar("disp", "DISPLAY LATENCY", "lat", "x", "#8a4f4f", "rgba(138, 79, 79, 0.08)");
 
         const totData = avgData.map((d, i) => (hasSubLats ? Math.max(0, d.tot - activeLatSums[i]) : d.tot));
-        const totBg = hasSubLats ? "transparent" : "rgba(255, 255, 255, 0.15)";
+        const totBg = hasSubLats ? "transparent" : "rgba(255, 255, 255, 0.05)";
         pushBar("tot", "TOTAL LATENCY", "lat", "x", "#ffffff", totBg, totData);
 
         const ctx = document.getElementById("myChart").getContext("2d");
-        if (state.chart) state.chart.destroy();
-
-        const inlineDataLabels = {
-            id: "inlineDataLabels",
-            afterDatasetsDraw(chart) {
-                const ctx = chart.ctx;
-                ctx.save();
-                ctx.font = "500 10px 'JetBrains Mono'";
-                ctx.textBaseline = "middle";
-                const latStackSums = new Array(chart.data.labels.length).fill(0);
-                const latStackEdges = new Array(chart.data.labels.length).fill(0);
-                const latStackYs = new Array(chart.data.labels.length).fill(0);
-                const activeStacks = {};
-                
-                chart.data.datasets.forEach((ds) => {
-                    if (!ds.hidden) activeStacks[ds.stack] = (activeStacks[ds.stack] || 0) + 1;
-                });
-                
-                chart.data.datasets.forEach((dataset, i) => {
-                    const meta = chart.getDatasetMeta(i);
-                    if (!meta.hidden && dataset._isToggled) {
-                        const isLatStack = dataset.stack === "lat";
-                        const isTot = dataset.id === "tot";
-                        const isSoloStack = activeStacks[dataset.stack] === 1;
-                        
-                        meta.data.forEach((el, index) => {
-                            const val = dataset.data[index];
-                            if (val !== null && val > 0) {
-                                if (!(isTot && hasSubLats)) {
-                                    if (el.width && el.width > 24) {
-                                        ctx.fillStyle = "#ffffff";
-                                        ctx.textAlign = "right";
-                                        ctx.fillText(fmt(val), el.x - 8, el.y);
-                                    } else if (isSoloStack) {
-                                        ctx.fillStyle = "#ffffff";
-                                        ctx.textAlign = "left";
-                                        ctx.fillText(fmt(val), el.x + 8, el.y);
+        
+        // Hot-Swap existing chart context if type matches to prevent lag
+        if (state.chart && state.chart.config.type === "bar") {
+            state.chart.data.labels = labels;
+            state.chart.data.datasets = datasets;
+            state.chart.options.scales.x.max = lM;
+            state.chart.update('none'); // Update without animation overhead
+        } else {
+            if (state.chart) state.chart.destroy();
+            
+            const inlineDataLabels = {
+                id: "inlineDataLabels",
+                afterDatasetsDraw(chart) {
+                    const ctx = chart.ctx;
+                    ctx.save();
+                    ctx.font = "500 10px 'JetBrains Mono'";
+                    ctx.textBaseline = "middle";
+                    const latStackSums = new Array(chart.data.labels.length).fill(0);
+                    const latStackEdges = new Array(chart.data.labels.length).fill(0);
+                    const latStackYs = new Array(chart.data.labels.length).fill(0);
+                    const activeStacks = {};
+                    
+                    chart.data.datasets.forEach((ds) => {
+                        if (!ds.hidden) activeStacks[ds.stack] = (activeStacks[ds.stack] || 0) + 1;
+                    });
+                    
+                    chart.data.datasets.forEach((dataset, i) => {
+                        const meta = chart.getDatasetMeta(i);
+                        if (!meta.hidden && dataset._isToggled) {
+                            const isLatStack = dataset.stack === "lat";
+                            const isTot = dataset.id === "tot";
+                            const isSoloStack = activeStacks[dataset.stack] === 1;
+                            
+                            meta.data.forEach((el, index) => {
+                                const val = dataset.data[index];
+                                if (val !== null && val > 0) {
+                                    if (!(isTot && hasSubLats)) {
+                                        if (el.width && el.width > 24) {
+                                            ctx.fillStyle = "#ffffff";
+                                            ctx.textAlign = "right";
+                                            ctx.fillText(fmt(val), el.x - 8, el.y);
+                                        } else if (isSoloStack) {
+                                            ctx.fillStyle = "#ffffff";
+                                            ctx.textAlign = "left";
+                                            ctx.fillText(fmt(val), el.x + 8, el.y);
+                                        }
+                                    }
+                                    if (isLatStack) {
+                                        latStackSums[index] += val;
+                                        if (el.x > latStackEdges[index]) latStackEdges[index] = el.x;
+                                        latStackYs[index] = el.y;
                                     }
                                 }
-                                if (isLatStack) {
-                                    latStackSums[index] += val;
-                                    if (el.x > latStackEdges[index]) latStackEdges[index] = el.x;
-                                    latStackYs[index] = el.y;
-                                }
-                            }
+                            });
+                        }
+                    });
+                    
+                    if (activeStacks["lat"] > 1) {
+                        ctx.fillStyle = "#ffffff";
+                        ctx.textAlign = "left";
+                        latStackEdges.forEach((edgeX, index) => {
+                            if (latStackSums[index] > 0) ctx.fillText(fmt(latStackSums[index]), edgeX + 8, latStackYs[index]);
                         });
                     }
-                });
-                
-                if (activeStacks["lat"] > 1) {
-                    ctx.fillStyle = "#ffffff";
-                    ctx.textAlign = "left";
-                    latStackEdges.forEach((edgeX, index) => {
-                        if (latStackSums[index] > 0) ctx.fillText(fmt(latStackSums[index]), edgeX + 8, latStackYs[index]);
-                    });
-                }
-                ctx.restore();
-            },
-        };
+                    ctx.restore();
+                },
+            };
 
-        state.chart = new Chart(ctx, {
-            type: "bar",
-            data: { labels, datasets },
-            options: {
-                indexAxis: "y",
-                devicePixelRatio: Math.max(window.devicePixelRatio || 1, 4),
-                responsive: true,
-                maintainAspectRatio: false,
-                animation: false,
-                interaction: { mode: "y", intersect: false },
-                layout: { padding: { left: 50, right: 50, top: 50, bottom: 20 } },
-                plugins: {
-                    legend: {
-                        display: true,
-                        position: "top",
-                        align: "center",
-                        labels: {
-                            color: "#a1a1aa",
-                            font: { family: "'JetBrains Mono'", size: 10, weight: "400" },
-                            boxWidth: 10,
-                            padding: 35,
-                            generateLabels: (chart) => {
-                                const active = chart.data.datasets
-                                    .map((ds, i) => ({ ds, i }))
-                                    .filter((item) => item.ds._isToggled);
-                                if (active.length === 0)
-                                    return [
-                                        {
-                                            text: "", fillStyle: "transparent", strokeStyle: "transparent",
-                                            lineWidth: 0, boxWidth: 0, hidden: false, fontColor: "transparent",
-                                        },
-                                    ];
-                                return active.map((item) => ({
-                                    text: item.ds.label,
-                                    fontColor: "#a1a1aa",
-                                    fillStyle: item.ds.backgroundColor !== "transparent" ? item.ds.backgroundColor : item.ds.borderColor,
-                                    strokeStyle: item.ds.borderColor,
-                                    lineWidth: item.ds.borderWidth || 1,
-                                    borderRadius: 0,
-                                    hidden: false,
-                                    datasetIndex: item.i,
-                                }));
+            state.chart = new Chart(ctx, {
+                type: "bar",
+                data: { labels, datasets },
+                options: {
+                    indexAxis: "y",
+                    devicePixelRatio: Math.max(window.devicePixelRatio || 1, 4),
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: false,
+                    interaction: { mode: "y", intersect: false },
+                    layout: { padding: { left: 50, right: 50, top: 50, bottom: 20 } },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: "top",
+                            align: "center",
+                            labels: {
+                                color: "#a1a1aa",
+                                font: { family: "'JetBrains Mono'", size: 10, weight: "400" },
+                                boxWidth: 10,
+                                padding: 35,
+                                generateLabels: (chart) => {
+                                    const active = chart.data.datasets
+                                        .map((ds, i) => ({ ds, i }))
+                                        .filter((item) => item.ds._isToggled);
+                                    if (active.length === 0)
+                                        return [
+                                            {
+                                                text: "", fillStyle: "transparent", strokeStyle: "transparent",
+                                                lineWidth: 0, boxWidth: 0, hidden: false, fontColor: "transparent",
+                                            },
+                                        ];
+                                    return active.map((item) => ({
+                                        text: item.ds.label,
+                                        fontColor: "#a1a1aa",
+                                        fillStyle: item.ds.backgroundColor !== "transparent" ? item.ds.backgroundColor : item.ds.borderColor,
+                                        strokeStyle: item.ds.borderColor,
+                                        lineWidth: item.ds.borderWidth || 1,
+                                        borderRadius: 0,
+                                        hidden: false,
+                                        datasetIndex: item.i,
+                                    }));
+                                },
+                            },
+                        },
+                        tooltip: {
+                            backgroundColor: "#0a0a0c",
+                            titleFont: { family: "'JetBrains Mono'", size: 11, weight: "500" },
+                            bodyFont: { family: "'JetBrains Mono'", size: 10, weight: "400" },
+                            titleColor: "#ffffff",
+                            bodyColor: "#a1a1aa",
+                            cornerRadius: 0,
+                            borderColor: "#27272a",
+                            borderWidth: 1,
+                            padding: 16,
+                            boxPadding: 6,
+                            callbacks: {
+                                label: (c) => {
+                                    if (c.dataset.id === "tot") return `${c.dataset.label}: ${fmt(avgData[c.dataIndex].tot)}`;
+                                    return `${c.dataset.label}: ${fmt(c.raw)}`;
+                                },
                             },
                         },
                     },
-                    tooltip: {
-                        backgroundColor: "#0a0a0c",
-                        titleFont: { family: "'JetBrains Mono'", size: 11, weight: "500" },
-                        bodyFont: { family: "'JetBrains Mono'", size: 10, weight: "400" },
-                        titleColor: "#ffffff",
-                        bodyColor: "#a1a1aa",
-                        cornerRadius: 0,
-                        borderColor: "#27272a",
-                        borderWidth: 1,
-                        padding: 16,
-                        boxPadding: 6,
-                        callbacks: {
-                            label: (c) => {
-                                if (c.dataset.id === "tot") return `${c.dataset.label}: ${fmt(avgData[c.dataIndex].tot)}`;
-                                return `${c.dataset.label}: ${fmt(c.raw)}`;
-                            },
+                    scales: {
+                        y: {
+                            stacked: true,
+                            ticks: { color: "#71717a", font: { family: "'JetBrains Mono'", size: 10 } },
+                            grid: { display: false },
+                        },
+                        x: {
+                            type: "linear",
+                            position: "bottom",
+                            stacked: true,
+                            min: 0,
+                            max: lM,
+                            ticks: { color: "#71717a", font: { size: 10 }, callback: (v) => fmt(v) },
+                            title: { display: true, text: "LATENCY (ms)", color: "#71717a", font: { weight: "500", size: 10, letterSpacing: 2 }, padding: { top: 20 } },
+                            grid: { color: "rgba(255, 255, 255, 0.05)" },
                         },
                     },
                 },
-                scales: {
-                    y: {
-                        stacked: true,
-                        ticks: { color: "#71717a", font: { family: "'JetBrains Mono'", size: 10 } },
-                        grid: { display: false },
-                    },
-                    x: {
-                        type: "linear",
-                        position: "bottom",
-                        stacked: true,
-                        min: 0,
-                        max: lM,
-                        ticks: { color: "#71717a", font: { size: 10 }, callback: (v) => fmt(v) },
-                        title: { display: true, text: "LATENCY (ms)", color: "#71717a", font: { weight: "500", size: 10, letterSpacing: 2 }, padding: { top: 20 } },
-                        grid: { color: "rgba(255, 255, 255, 0.05)" },
-                    },
-                },
-            },
-            plugins: [inlineDataLabels],
-        });
+                plugins: [inlineDataLabels],
+            });
+        }
 
         updateSidebarMetrics("game", globalVals.game);
         updateSidebarMetrics("os", globalVals.os);
         updateSidebarMetrics("rnd", globalVals.rnd);
+        updateSidebarMetrics("sched", globalVals.sched);
         updateSidebarMetrics("disp", globalVals.disp);
         updateSidebarMetrics("peri", globalVals.peri);
         updateSidebarMetrics("tot", globalVals.tot);
@@ -635,7 +691,6 @@ document.addEventListener("DOMContentLoaded", () => {
     function renderSingleChart() {
         if (!state.activeKey) return;
         const session = state.pairedSessions[state.activeKey];
-        const lData = session.cleanLat, gData = session.game.data;
 
         if (session.hasMouseData) {
             dom.mouseStatus.classList.remove("visible");
@@ -646,69 +701,55 @@ document.addEventListener("DOMContentLoaded", () => {
             dom.mouseInput.parentElement.classList.add("fallback-active");
         }
 
-        if (dom.minR.max != lData.length - 1) {
-            dom.minR.max = lData.length - 1;
-            dom.maxR.max = lData.length - 1;
+        if (dom.minR.max != session.mergedData.length - 1) {
+            dom.minR.max = session.mergedData.length - 1;
+            dom.maxR.max = session.mergedData.length - 1;
             dom.minR.value = 0;
-            dom.maxR.value = lData.length - 1;
+            dom.maxR.value = session.mergedData.length - 1;
         }
         
         const startIdx = parseInt(dom.minR.value);
         const endIdx = parseInt(dom.maxR.value);
-        const mMin = lData[startIdx]._normTime;
-        const mMax = lData[endIdx]._normTime;
+        const mMin = session.mergedData[startIdx].t;
+        const mMax = session.mergedData[endIdx].t;
         dom.rLabel.textContent = `${fmt(mMin)} - ${fmt(mMax)}s`;
-
-        const colPCD = session.lat.cols.find((c) => c.toLowerCase().includes("pc + display"));
-        const colSys = session.lat.cols.find((c) => c.toLowerCase().includes("system latency"));
-        const colMouse = session.lat.cols.find((c) => c.toLowerCase().includes("mouse"));
-        
-        const colGameFt = session.game.cols.find((c) => c.toLowerCase().includes("msbetweenpresents"));
-        const colGameRnd = session.game.cols.find((c) => c.toLowerCase().includes("msrenderpresentlatency"));
-        const colGamePC = session.game.cols.find((c) => c.toLowerCase().includes("mspclatency"));
 
         const mBase = parseFloat(dom.mouseInput.value) || 0;
         
-        const arrGame = [], arrOs = [], arrRnd = [], arrDisp = [], arrPeri = [], arrTot = [];
-        const dataGame = [], dataOs = [], dataRnd = [], dataDisp = [], dataPeri = [], dataTot = [];
+        const arrGame = [], arrOs = [], arrRnd = [], arrSched = [], arrDisp = [], arrPeri = [], arrTot = [];
+        const dataGame = [], dataOs = [], dataRnd = [], dataSched = [], dataDisp = [], dataPeri = [], dataTot = [];
 
-        lData.slice(startIdx, endIdx + 1).forEach((r) => {
-            const t = r._normTime;
+        // Fast Iteration over Pre-Calculated slice
+        const dataSlice = session.mergedData.slice(startIdx, endIdx + 1);
+        dataSlice.forEach((r) => {
+            const t = r.t;
             
-            const ft = getInterpolatedValue(gData, t, colGameFt, '_normTime') || 0;
-            const rnd = getInterpolatedValue(gData, t, colGameRnd, '_normTime') || 0;
-            const pc = getInterpolatedValue(gData, t, colGamePC, '_normTime') || 0;
+            const hasReflexMouse = r.mouseRaw !== undefined && r.mouseRaw !== null && r.mouseRaw > 0;
+            const peri = hasReflexMouse ? r.mouseRaw : mBase;
+
+            const game = Math.max(0, r.pc - r.untilDisp - r.api);
+            const os = Math.max(0, r.api);
+            const render = Math.max(0, r.rnd);
+            const sched = Math.max(0, r.untilDisp - r.rnd);
+            const disp = Math.max(0, r.pcd - r.pc);
             
-            const pcd = r[colPCD] || 0;
-            const sysRaw = r[colSys];
-            const mouseRaw = r[colMouse];
-            const jitter = r._jitter || 0;
-
-            const isRealMouse = colSys && sysRaw !== null && mouseRaw > 0;
-            const sys = isRealMouse ? sysRaw : pcd + mBase + mBase * jitter;
-
-            const isoCpu = Math.max(0, pc - rnd);
-            const game = ft > 0 ? ft : 0;
-            const os = Math.max(0, isoCpu - game);
-
-            const isoRnd = Math.max(0, rnd);
-            const isoDisp = Math.max(0, pcd - pc);
-            const isoPeri = Math.max(0, sys - pcd);
-            const isoTot = Math.max(0, sys);
+            const sys = game + os + render + sched + disp + peri;
 
             arrGame.push(game);
             arrOs.push(os);
-            arrRnd.push(isoRnd); 
-            arrDisp.push(isoDisp); 
-            arrPeri.push(isoPeri); 
-            arrTot.push(isoTot);
+            arrRnd.push(render); 
+            arrSched.push(sched);
+            arrDisp.push(disp); 
+            arrPeri.push(peri); 
+            arrTot.push(sys);
 
             dataGame.push({ x: t, y: game });
             dataOs.push({ x: t, y: os });
-            dataRnd.push({ x: t, y: isoRnd });
-            dataDisp.push({ x: t, y: isoDisp });
-            dataPeri.push({ x: t, y: isoPeri });
-            dataTot.push({ x: t, y: isoTot });
+            dataRnd.push({ x: t, y: render });
+            dataSched.push({ x: t, y: sched });
+            dataDisp.push({ x: t, y: disp });
+            dataPeri.push({ x: t, y: peri });
+            dataTot.push({ x: t, y: sys });
         });
 
         let maxLat = 0;
@@ -722,150 +763,167 @@ document.addEventListener("DOMContentLoaded", () => {
                 if (state.visibility.game) stackSum += arrGame[i] || 0;
                 if (state.visibility.os) stackSum += arrOs[i] || 0;
                 if (state.visibility.rnd) stackSum += arrRnd[i] || 0;
+                if (state.visibility.sched) stackSum += arrSched[i] || 0;
                 if (state.visibility.disp) stackSum += arrDisp[i] || 0;
                 if (state.visibility.peri) stackSum += arrPeri[i] || 0;
                 if (stackSum > maxLat) maxLat = stackSum;
             }
         }
 
-        const lM = (Math.floor(Math.max(0, maxLat) / 5) + 1) * 5;
+        // Updated chart max calculation: rounding up to nearest multiple of 2
+        const lM = (Math.floor(Math.max(0, maxLat || 10) / 2) + 1) * 2;
 
         const datasets = [];
         const pushLine = (id, label, avg, data, color, bg, fillMode, stackId) => {
-            datasets.push({
-                _isToggled: state.visibility[id],
-                hidden: !state.visibility[id],
-                label: label,
-                _avgVal: avg,
-                data: data,
-                yAxisID: "y",
-                borderColor: state.visibility[id] ? color : "transparent",
-                backgroundColor: state.visibility[id] ? bg : "transparent",
-                fill: fillMode,
-                borderWidth: 1,
-                pointRadius: 0,
-                tension: 0,
-                stack: stackId
-            });
+            if(state.visibility[id] || id === 'tot') {
+                if (id === 'tot' && !state.visibility.tot) return;
+                datasets.push({
+                    label: label,
+                    data: data,
+                    yAxisID: "y",
+                    borderColor: state.visibility[id] ? color : "transparent",
+                    backgroundColor: state.visibility[id] ? bg : "transparent",
+                    fill: fillMode,
+                    borderWidth: 1,
+                    pointRadius: 0,
+                    tension: 0,
+                    stack: stackId
+                });
+            }
         };
 
+        let prevIdx = "origin";
         const activeLatencyLayers = [
-            { id: "peri", label: "PERIPHERAL LATENCY", avg: getAverage(arrPeri), data: dataPeri, color: "#44444a", bg: "rgba(68, 68, 74, 0.15)" },
-            { id: "os", label: "OS LATENCY", avg: getAverage(arrOs), data: dataOs, color: "#52525b", bg: "rgba(82, 82, 91, 0.15)" },
-            { id: "game", label: "GAME LATENCY", avg: getAverage(arrGame), data: dataGame, color: "#71717a", bg: "rgba(113, 113, 122, 0.15)" },
-            { id: "rnd", label: "RENDER LATENCY", avg: getAverage(arrRnd), data: dataRnd, color: "#a1a1aa", bg: "rgba(161, 161, 170, 0.15)" },
-            { id: "disp", label: "DISPLAY LATENCY", avg: getAverage(arrDisp), data: dataDisp, color: "#d4d4d8", bg: "rgba(212, 212, 216, 0.15)" },
+            { id: "peri", label: "PERIPHERAL LATENCY", data: dataPeri, color: "#8a804f", bg: "rgba(138, 128, 79, 0.08)" },
+            { id: "os", label: "OS LATENCY", data: dataOs, color: "#4f6b8a", bg: "rgba(79, 107, 138, 0.08)" },
+            { id: "game", label: "GAME LATENCY", data: dataGame, color: "#8a6b4f", bg: "rgba(138, 107, 79, 0.08)" },
+            { id: "rnd", label: "RENDER LATENCY", data: dataRnd, color: "#6b8a4f", bg: "rgba(107, 138, 79, 0.08)" },
+            { id: "sched", label: "SCHEDULING LATENCY", data: dataSched, color: "#7a5c7a", bg: "rgba(122, 92, 122, 0.08)" },
+            { id: "disp", label: "DISPLAY LATENCY", data: dataDisp, color: "#8a4f4f", bg: "rgba(138, 79, 79, 0.08)" },
         ];
 
-        let prevIdx = "origin";
         activeLatencyLayers.forEach((layer) => {
-            pushLine(layer.id, layer.label, layer.avg, layer.data, layer.color, layer.bg, prevIdx, 'latency');
-            prevIdx = datasets.length - 1; 
+            if(state.visibility[layer.id]) {
+                pushLine(layer.id, layer.label, layer.avg, layer.data, layer.color, layer.bg, prevIdx, 'latency');
+                prevIdx = datasets.length - 1; 
+            }
         });
         
         pushLine("tot", "TOTAL LATENCY", getAverage(arrTot), dataTot, "#ffffff", "transparent", false, "total");
 
         const ctx = document.getElementById("myChart").getContext("2d");
-        if (state.chart) state.chart.destroy();
 
-        state.chart = new Chart(ctx, {
-            type: "line",
-            data: { datasets },
-            options: {
-                devicePixelRatio: Math.max(window.devicePixelRatio || 1, 4),
-                responsive: true,
-                maintainAspectRatio: false,
-                animation: false,
-                interaction: { mode: "index", intersect: false },
-                layout: { padding: { left: 50, right: 50, top: 50, bottom: 20 } },
-                plugins: {
-                    legend: {
-                        display: true,
-                        position: "top",
-                        align: "center",
-                        labels: {
-                            color: "#a1a1aa",
-                            font: { family: "'JetBrains Mono'", size: 10, weight: "400" },
-                            boxWidth: 10,
-                            padding: 35,
-                            generateLabels: (chart) => {
-                                const active = chart.data.datasets
-                                    .map((ds, i) => ({ ds, i }))
-                                    .filter((item) => item.ds._isToggled);
-                                if (active.length === 0)
-                                    return [
-                                        {
-                                            text: "", fillStyle: "transparent", strokeStyle: "transparent",
-                                            lineWidth: 0, boxWidth: 0, hidden: false, fontColor: "transparent",
-                                        },
-                                    ];
-                                return active.map((item) => {
-                                    const ds = item.ds;
-                                    let text = ds.label;
-                                    if (ds._avgVal !== undefined && ds._avgVal !== null) text += `: ${fmt(ds._avgVal)}`;
-                                    return {
-                                        text: text,
-                                        fontColor: "#a1a1aa",
-                                        fillStyle: ds.backgroundColor !== "transparent" ? ds.backgroundColor : ds.borderColor,
-                                        strokeStyle: ds.borderColor,
-                                        lineWidth: ds.borderWidth || 1,
-                                        borderRadius: 0,
-                                        hidden: false,
-                                        datasetIndex: item.i,
-                                    };
-                                });
+        // Hot-Swap existing chart context if type matches for ultra-responsive sliding
+        if (state.chart && state.chart.config.type === "line") {
+            state.chart.data.datasets = datasets;
+            state.chart.options.scales.x.min = mMin;
+            state.chart.options.scales.x.max = mMax;
+            state.chart.options.scales.y.max = lM;
+            state.chart.update('none'); // Update immediately with no animation
+        } else {
+            if (state.chart) state.chart.destroy();
+            
+            state.chart = new Chart(ctx, {
+                type: "line",
+                data: { datasets },
+                options: {
+                    devicePixelRatio: Math.max(window.devicePixelRatio || 1, 4),
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: false,
+                    interaction: { mode: "index", intersect: false },
+                    layout: { padding: { left: 50, right: 50, top: 50, bottom: 20 } },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: "top",
+                            align: "center",
+                            labels: {
+                                color: "#a1a1aa",
+                                font: { family: "'JetBrains Mono'", size: 10, weight: "400" },
+                                boxWidth: 10,
+                                padding: 35,
+                                generateLabels: (chart) => {
+                                    const active = chart.data.datasets
+                                        .map((ds, i) => ({ ds, i }))
+                                        .filter((item) => item.ds._isToggled !== false);
+                                    if (active.length === 0)
+                                        return [
+                                            {
+                                                text: "", fillStyle: "transparent", strokeStyle: "transparent",
+                                                lineWidth: 0, boxWidth: 0, hidden: false, fontColor: "transparent",
+                                            },
+                                        ];
+                                    return active.map((item) => {
+                                        const ds = item.ds;
+                                        let text = ds.label;
+                                        if (ds._avgVal !== undefined && ds._avgVal !== null) text += `: ${fmt(ds._avgVal)}`;
+                                        return {
+                                            text: text,
+                                            fontColor: "#a1a1aa",
+                                            fillStyle: ds.backgroundColor !== "transparent" ? ds.backgroundColor : ds.borderColor,
+                                            strokeStyle: ds.borderColor,
+                                            lineWidth: ds.borderWidth || 1,
+                                            borderRadius: 0,
+                                            hidden: false,
+                                            datasetIndex: item.i,
+                                        };
+                                    });
+                                },
                             },
+                            onClick: null,
                         },
-                        onClick: null,
+                        tooltip: {
+                            backgroundColor: "#0a0a0c",
+                            titleFont: { family: "'JetBrains Mono'", size: 11, weight: "500" },
+                            bodyFont: { family: "'JetBrains Mono'", size: 10, weight: "400" },
+                            titleColor: "#ffffff",
+                            bodyColor: "#a1a1aa",
+                            cornerRadius: 0,
+                            borderColor: "#27272a",
+                            borderWidth: 1,
+                            padding: 16,
+                            boxPadding: 6,
+                            itemSort: (a, b) => b.raw.y - a.raw.y,
+                            callbacks: { label: (c) => `${c.dataset.label}: ${fmt(c.raw.y)}` },
+                        },
                     },
-                    tooltip: {
-                        backgroundColor: "#0a0a0c",
-                        titleFont: { family: "'JetBrains Mono'", size: 11, weight: "500" },
-                        bodyFont: { family: "'JetBrains Mono'", size: 10, weight: "400" },
-                        titleColor: "#ffffff",
-                        bodyColor: "#a1a1aa",
-                        cornerRadius: 0,
-                        borderColor: "#27272a",
-                        borderWidth: 1,
-                        padding: 16,
-                        boxPadding: 6,
-                        itemSort: (a, b) => b.raw.y - a.raw.y,
-                        callbacks: { label: (c) => `${c.dataset.label}: ${fmt(c.raw.y)}` },
+                    scales: {
+                        x: {
+                            type: "linear",
+                            min: mMin,
+                            max: mMax,
+                            ticks: { color: "#71717a", font: { size: 10 }, callback: (v) => fmt(v) },
+                            title: { display: true, text: "TIME (s)", color: "#71717a", font: { weight: "500", size: 10, letterSpacing: 2 }, padding: { top: 20 } },
+                            grid: { color: "rgba(255, 255, 255, 0.05)" },
+                        },
+                        y: {
+                            type: "linear",
+                            position: "left",
+                            stacked: true,
+                            min: 0,
+                            max: lM,
+                            ticks: { color: "#71717a", font: { size: 10 }, callback: (v) => fmt(v) },
+                            title: { display: true, text: "LATENCY (ms)", color: "#71717a", font: { weight: "500", size: 10, letterSpacing: 2 }, padding: { bottom: 20 } },
+                            grid: { color: "rgba(255, 255, 255, 0.05)" },
+                            afterFit: (s) => (s.width = 60),
+                        },
                     },
                 },
-                scales: {
-                    x: {
-                        type: "linear",
-                        min: mMin,
-                        max: mMax,
-                        ticks: { color: "#71717a", font: { size: 10 }, callback: (v) => fmt(v) },
-                        title: { display: true, text: "TIME (s)", color: "#71717a", font: { weight: "500", size: 10, letterSpacing: 2 }, padding: { top: 20 } },
-                        grid: { color: "rgba(255, 255, 255, 0.05)" },
-                    },
-                    y: {
-                        type: "linear",
-                        position: "left",
-                        stacked: true,
-                        min: 0,
-                        max: lM,
-                        ticks: { color: "#71717a", font: { size: 10 }, callback: (v) => fmt(v) },
-                        title: { display: true, text: "LATENCY (ms)", color: "#71717a", font: { weight: "500", size: 10, letterSpacing: 2 }, padding: { bottom: 20 } },
-                        grid: { color: "rgba(255, 255, 255, 0.05)" },
-                        afterFit: (s) => (s.width = 60),
-                    },
-                },
-            },
-        });
+            });
+        }
 
         updateSidebarMetrics("game", arrGame);
         updateSidebarMetrics("os", arrOs);
         updateSidebarMetrics("rnd", arrRnd);
+        updateSidebarMetrics("sched", arrSched);
         updateSidebarMetrics("disp", arrDisp);
         updateSidebarMetrics("peri", arrPeri);
         updateSidebarMetrics("tot", arrTot);
     }
 
-    const debouncedRenderChart = debounce(renderChart, 25);
+    // Lowered debounce to 10ms for highly responsive slider feedback
+    const debouncedRenderChart = debounce(renderChart, 10);
     
     // --- Event Listeners & UI Binding ---
     window.addEventListener("popstate", () => {
