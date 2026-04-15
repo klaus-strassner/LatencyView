@@ -1,280 +1,88 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="google-site-verification" content="BsgKLeBrpH8oYS320zBbgc4o0kjVoahd4c1ieyfG9is" />
-
-    <meta name="description" content="Sub-millisecond telemetry visualization for NVIDIA Reflex Latency Analyzer.">
-    <meta name="keywords" content="NVIDIA Reflex, Latency Analyzer, Input Lag, PC Latency, System Latency, Telemetry, Benchmark, Gaming Performance">
-
-    <meta property="og:type" content="website">
-    <meta property="og:url" content="https://latencyview.com/">
-    <meta property="og:title" content="Latency View">
-    <meta property="og:description" content="Sub-millisecond telemetry visualization for NVIDIA Reflex Latency Analyzer.">
-
-    <meta property="twitter:card" content="summary_large_image">
-    <meta property="twitter:url" content="https://latencyview.com/">
-    <meta property="twitter:title" content="Latency View">
-    <meta property="twitter:description" content="Sub-millisecond telemetry visualization for NVIDIA Reflex Latency Analyzer.">
-
-    <link rel="icon" type="image/png" href="assets/logo_white_transparent.png">
-
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Latency View</title>
-
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js" defer></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
-
+    <link rel="icon" type="image/png" href="assets/logo_white_transparent.png">
+    <script src="lib/mini-coi.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
-    
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300&family=Inter:wght@300;400;500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
 </head>
-<body>
-    <div id="loader">
-        <div class="loader-text">Loading Workspace</div>
+<body class="view-landing">
+
+    <input type="file" id="csv-input" multiple accept=".csv" style="display:none">
+
+    <!-- ── Landing ──────────────────────────────────────────────────── -->
+    <div id="landing">
+        <div class="landing-content">
+            <h1 class="brand">LatencyView</h1>
+            <p class="subtitle">Precision latency analysis from NVIDIA capture logs</p>
+
+            <div class="steps">
+                <div class="step">
+                    <span class="step-num">01</span>
+                    <p class="step-text">Record a session with <strong>NVIDIA FrameView</strong></p>
+                </div>
+                <div class="step">
+                    <span class="step-num">02</span>
+                    <p class="step-text">Record the same session with <strong>NVIDIA App</strong> &mdash; enable System Latency logging</p>
+                </div>
+                <div class="step">
+                    <span class="step-num">03</span>
+                    <p class="step-text">Select both CSV output files &mdash; paired automatically by capture time</p>
+                </div>
+            </div>
+
+            <button id="open-files-btn" class="btn-primary">Select Log Files</button>
+            <button id="load-demo-btn" class="btn-secondary">Load Sample Data</button>
+            <p id="status-landing" class="status"></p>
+        </div>
     </div>
 
-    <main class="main-grid" id="mainGrid">
-        <section class="chart-cell">
-            <button type="button" class="copy-btn" id="copyGraphBtn">Copy Graph</button>
+    <!-- ── Workspace ─────────────────────────────────────────────────── -->
+    <div id="workspace">
+        <div class="workspace-body">
+            <!-- Main content area: chart or compare table -->
+            <section class="main-area">
+                <div id="single-view" class="chart-area">
+                    <canvas id="gpu-canvas"></canvas>
+                </div>
 
-            <div class="title" id="homeBtn" style="cursor: pointer;" title="Return to Setup">
-                Latency View<span id="chartSubTitle" class="subtitle"></span>
-            </div>
-
-            <div class="guide-wrapper" id="guideWrapper">
-                <div class="guide-content wide-guide">
-                    <div class="guide-header">
-                        <h2>Latency View Early Beta</h2>
-                        <p>Sub-millisecond analysis for NVIDIA Reflex.</p>
+                <div id="compare-view" class="compare-view">
+                    <div class="compare-scroll">
+                        <canvas id="compare-canvas"></canvas>
                     </div>
+                    <canvas id="compare-overlay"></canvas>
+                </div>
+            </section>
 
-                    <div class="accordion-container">
-                        <details class="step-accordion" name="setup-guide">
-                            <summary>
-                                <div class="step-summary-inner">
-                                    <div class="step-num">01</div>
-                                    <h3>Hardware</h3>
-                                </div>
-                            </summary>
-                            <div class="accordion-body">
-                                <ul class="guide-list">
-                                    <li>Connect the monitor upstream cable to the computer.</li>
-                                    <li>Connect the mouse to the designated Reflex port on the monitor.</li>
-                                    <li>Enable Reflex Latency Analyzer in the monitor OSD.</li>
-                                </ul>
-                                <a href="https://www.nvidia.com/en-us/geforce/technologies/reflex/supported-products/" target="_blank" rel="noopener noreferrer" class="external-link">Compatible Hardware ↗</a>
+            <!-- Sidebar: sessions, config, metrics -->
+            <aside class="sidebar">
+                <div class="sidebar-scroll">
+
+                    <div id="session-list"></div>
+
+                    <div id="mouse-latency-config" style="display:none">
+                        <div class="config-block">
+                            <p class="config-note">Mouse not detected &mdash; using estimated latency</p>
+                            <div class="config-row">
+                                <input type="number" id="mouse-latency-input" class="input-mono" value="1" min="0" max="100" step="0.5">
+                                <span class="input-suffix">ms</span>
+                                <button id="apply-mouse-latency" class="btn-tool">Apply</button>
                             </div>
-                        </details>
-
-                        <details class="step-accordion" name="setup-guide">
-                            <summary>
-                                <div class="step-summary-inner">
-                                    <div class="step-num">02</div>
-                                    <h3>Software</h3>
-                                </div>
-                            </summary>
-                            <div class="accordion-body">
-                                <ul class="guide-list">
-                                    <li>Install FrameView and the NVIDIA App.</li>
-                                    <li>Define the output directory and assign the benchmark hotkey.</li>
-                                    <li>Enable NVIDIA Reflex inside the game settings.</li>
-                                    <li>Align the OSD indicator and run the benchmark.</li>
-                                </ul>
-                            </div>
-                        </details>
-
-                        <details class="step-accordion" name="setup-guide">
-                            <summary>
-                                <div class="step-summary-inner">
-                                    <div class="step-num">03</div>
-                                    <h3>Automation</h3>
-                                </div>
-                            </summary>
-                            <div class="accordion-body">
-                                <ul class="guide-list">
-                                    <li>Create a macro to automate mouse clicks during a benchmark run.</li>
-                                </ul>
-                            </div>
-                        </details>
-                    </div>
-
-                    <div class="upload-banner">
-                        <div class="upload-text">
-                            <h3>Process Data</h3>
-                            <p>Select the FrameView and NVIDIA Latency logs.</p>
-                            <button type="button" class="sample-data-link">Load Sample Data</button>
                         </div>
-                        <label for="csvFile" class="upload-zone slim-upload-btn">
-                            <span>Select Files</span>
-                        </label>
                     </div>
-                </div>
-            </div>
 
-            <div class="chart-wrapper" id="chartWrapper">
-                <canvas id="myChart"></canvas>
-            </div>
-        </section>
+                    <div id="metrics-container"></div>
 
-        <aside class="sidebar">
-            <section class="sidebar-section">
-                <div class="sidebar-title">Metrics</div>
-                <div class="stats-grid table-header">
-                    <span></span>
-                    <div class="stats-header">MIN</div>
-                    <div class="stats-header">AVG</div>
-                    <div class="stats-header">MAX</div>
                 </div>
-                
-                <div class="stats-grid metric-row disabled" data-metric="tot">
-                    <div class="stats-label"><div class="indicator" style="background:var(--c-totlat)"></div> SYS LATENCY</div>
-                    <div class="stats-val" id="min-tot">-</div>
-                    <div class="stats-val highlight" id="avg-tot">-</div>
-                    <div class="stats-val" id="max-tot">-</div>
-                </div>
-                
-                <div class="stats-grid metric-row" data-metric="disp">
-                    <div class="stats-label"><div class="indicator" style="background:var(--c-pcdisp)"></div> DISPLAY</div>
-                    <div class="stats-val" id="min-disp">-</div>
-                    <div class="stats-val highlight" id="avg-disp">-</div>
-                    <div class="stats-val" id="max-disp">-</div>
-                </div>
-                
-                <div class="stats-grid metric-row" data-metric="sched">
-                    <div class="stats-label"><div class="indicator" style="background: var(--c-schedlat);"></div> SCHEDULING</div>
-                    <div class="stats-val" id="min-sched">-</div>
-                    <div class="stats-val highlight" id="avg-sched">-</div>
-                    <div class="stats-val" id="max-sched">-</div>
-                </div>
-                
-                <div class="stats-grid metric-row" data-metric="rnd">
-                    <div class="stats-label"><div class="indicator" style="background:var(--c-rndlat)"></div> RENDER</div>
-                    <div class="stats-val" id="min-rnd">-</div>
-                    <div class="stats-val highlight" id="avg-rnd">-</div>
-                    <div class="stats-val" id="max-rnd">-</div>
-                </div>
-                
-                <div class="stats-grid metric-row" data-metric="game">
-                    <div class="stats-label"><div class="indicator" style="background:var(--c-gamelat)"></div> GAME</div>
-                    <div class="stats-val" id="min-game">-</div>
-                    <div class="stats-val highlight" id="avg-game">-</div>
-                    <div class="stats-val" id="max-game">-</div>
-                </div>
+            </aside>
+        </div>
+    </div>
 
-                <div class="stats-grid metric-row" data-metric="os">
-                    <div class="stats-label"><div class="indicator" style="background:var(--c-oslat)"></div> OS</div>
-                    <div class="stats-val" id="min-os">-</div>
-                    <div class="stats-val highlight" id="avg-os">-</div>
-                    <div class="stats-val" id="max-os">-</div>
-                </div>
-
-                <div class="stats-grid metric-row" data-metric="peri">
-                    <div class="stats-label"><div class="indicator" style="background:var(--c-syslat)"></div> PERIPHERAL</div>
-                    <div class="stats-val" id="min-peri">-</div>
-                    <div class="stats-val highlight" id="avg-peri">-</div>
-                    <div class="stats-val" id="max-peri">-</div>
-                </div>
-
-                <div class="stats-spacer"></div>
-
-                <div class="stats-grid metric-row disabled" data-metric="frametime">
-                    <div class="stats-label"><div class="indicator" style="background:var(--c-frametime)"></div> FRAMETIME</div>
-                    <div class="stats-val" id="min-frametime">-</div>
-                    <div class="stats-val highlight" id="avg-frametime">-</div>
-                    <div class="stats-val" id="max-frametime">-</div>
-                </div>
-
-                <div class="stats-grid metric-row" data-metric="fps">
-                    <div class="stats-label"><div class="indicator" style="background:var(--c-fps)"></div> FRAMERATE</div>
-                    <div class="stats-val" id="min-fps">-</div>
-                    <div class="stats-val highlight" id="avg-fps">-</div>
-                    <div class="stats-val" id="max-fps">-</div>
-                </div>
-
-                <div class="stats-grid metric-row disabled" data-metric="fps1low">
-                    <div class="stats-label"><div class="indicator" style="background:var(--c-fps1low)"></div> 1% LOW</div>
-                    <div class="stats-val" id="min-fps1low">-</div>
-                    <div class="stats-val highlight" id="avg-fps1low">-</div>
-                    <div class="stats-val" id="max-fps1low">-</div>
-                </div>
-
-                <div class="stats-grid metric-row disabled" data-metric="fps01low">
-                    <div class="stats-label"><div class="indicator" style="background:var(--c-fps01low)"></div> 0.1% LOW</div>
-                    <div class="stats-val" id="min-fps01low">-</div>
-                    <div class="stats-val highlight" id="avg-fps01low">-</div>
-                    <div class="stats-val" id="max-fps01low">-</div>
-                </div>
-            </section>
-
-            <section class="sidebar-section no-border">
-                <div class="sidebar-title">Dataset</div>
-
-                <input type="file" id="csvFile" accept=".csv" multiple style="display: none;">
-
-                <label for="csvFile" class="upload-zone" id="dropZone" style="margin-bottom: 30px;">
-                    <span>Load New Data</span>
-                </label>
-
-                <div class="control-group">
-                    <span class="control-label">File Selection</span>
-                    <div class="custom-select-wrapper disabled" id="customSelectWrapper">
-                        <div class="custom-select-display" id="customSelectDisplay"></div>
-                        <div class="custom-select-options" id="customSelectOptions"></div>
-                    </div>
-                    <button type="button" class="action-btn disabled" id="compareBtn" style="margin-top: 15px;">Compare Sessions</button>
-                </div>
-
-                <div class="control-group" id="sortGroup" style="display: none; margin-top: 25px;">
-                    <div class="control-label" style="display:flex; justify-content: space-between;">
-                        <span>Sort Metric</span>
-                        <span id="sortDirToggle" class="interactive-label">ASCENDING</span>
-                    </div>
-                    <div class="select-box">
-                        <select id="sortSelect">
-                            <option value="ts">Chronological</option>
-                            <option value="tot">Total Latency</option>
-                            <option value="disp">Display Latency</option>
-                            <option value="sched">Scheduling Latency</option>
-                            <option value="rnd">Render Latency</option>
-                            <option value="game">Game Latency</option>
-                            <option value="os">OS Latency</option>
-                            <option value="peri">Peripheral Latency</option>
-                            <option value="fps">Framerate (FPS)</option>
-                            <option value="fps1low">1% Low FPS</option>
-                            <option value="fps01low">0.1% Low FPS</option>
-                            <option value="frametime">Frametime</option>
-                        </select>
-                    </div>
-                </div>
-
-                <div class="control-group" style="margin-top: 25px;" id="mouseInputGroup">
-                    <span class="control-label">Mouse Latency (ms)</span>
-                    <div class="number-input-wrapper">
-                        <button type="button" class="num-btn minus" data-target="manualMouseLat">−</button>
-                        <input type="number" id="manualMouseLat" value="1.0" step="0.1" min="0">
-                        <button type="button" class="num-btn plus" data-target="manualMouseLat">+</button>
-                    </div>
-                    <div id="mouseStatus" class="input-note"></div>
-                </div>
-
-                <div class="control-group" style="margin-top: 35px;" id="timespanGroup">
-                    <div class="control-label" style="display:flex; justify-content: space-between;">
-                        <span>Timeline (s)</span>
-                        <span id="rangeLabel" class="value-label">0.00 - 0.00s</span>
-                    </div>
-                    <div class="range-slider-wrapper">
-                        <div id="rangeTrack" class="range-track-highlight"></div>
-                        <input type="range" id="minRange" class="range-slider" min="0" max="0" value="0" aria-label="Minimum timespan">
-                        <input type="range" id="maxRange" class="range-slider" min="0" max="0" value="0" aria-label="Maximum timespan">
-                    </div>
-                </div>
-            </section>
-        </aside>
-    </main>
-
-    <script src="script.js"></script>
+    <script type="module" src="src/main.js"></script>
 </body>
 </html>
