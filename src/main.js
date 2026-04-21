@@ -1,28 +1,29 @@
-const LATENCY_MAJOR_STACK = ['peripheral_latency', 'game_latency', 'driver_latency', 'render_latency', 'scheduling_latency', 'display_latency'];
+const LATENCY_MAJOR_STACK = ['peripheral_latency', 'isr_latency', 'dpc_latency', 'game_latency', 'driver_latency', 'render_latency', 'scheduling_latency', 'display_latency'];
 
 // Warm-neutral palette along the ivory → champagne → dune → taupe axis.
-// Indexed positionally — each slot is chosen for the specific metric it lands
-// on, so stacked neighbours have strong luminance deltas and everything stays
-// readable on pure black (no value darker than ~#6a6458).
+// Keyed by metric so optional metrics (ISR/DPC, hardware telemetry) can be
+// added without shifting colors of unrelated ones.
 //
 // Latency stack order (bottom → top):
-//   peripheral → game → driver → render → scheduling → display
-// Deltas between neighbours (approx sRGB L): 22, 29, 20, 27, 16.
-//
-//   idx  metric               role                        hex       ~L
-const COLOR_PALETTE = [
-    '#e8e0c8', // 0  system_latency      shell/total          ivory     87
-    '#a8a294', // 1  display_latency     top of stack         platinum  64
-    '#d6cdb2', // 2  scheduling_latency                       champagne 80
-    '#8c8576', // 3  render_latency      middle               dune      53
-    '#c4bba0', // 4  driver_latency                           bone      73
-    '#746c5c', // 5  game_latency        largest block        khaki     44
-    '#ece4cc', // 6  frame_time          inside game — max Δ  ivory     89
-    '#b0a78e', // 7  peripheral_latency  bottom of stack      titanium  66
-    '#d0c6a8', // 8  fps_live            avg FPS              champagne 77
-    '#9e9582', // 9  fps_1pct                                 taupe     59
-    '#7a7263', // 10 fps_01pct                                shadow    46
-    // fallback slots for any additional metrics (keeps %-index stable)
+//   peripheral → isr → dpc → game → driver → render → scheduling → display
+const METRIC_COLORS = {
+    system_latency:     '#e8e0c8', // ivory       — shell/total
+    display_latency:    '#a8a294', // platinum    — top of stack
+    scheduling_latency: '#d6cdb2', // champagne
+    render_latency:     '#8c8576', // dune        — middle
+    driver_latency:     '#c4bba0', // bone
+    game_latency:       '#746c5c', // khaki       — largest block
+    frame_time:         '#ece4cc', // ivory       — inside game, max Δ
+    isr_latency:        '#d4c89a', // warm sand
+    dpc_latency:        '#7e7563', // dark taupe
+    peripheral_latency: '#b0a78e', // titanium    — bottom of stack
+    fps_live:           '#d0c6a8', // champagne   — avg FPS
+    fps_1pct:           '#9e9582', // taupe
+    fps_01pct:          '#7a7263', // shadow
+};
+
+// Fallback palette for any unmapped metric, used round-robin.
+const FALLBACK_PALETTE = [
     '#bcb39a', '#867e6c', '#d8cfb4', '#a69c84', '#706856',
     '#c8bfa4', '#988f7a', '#e0d8c0', '#827a68',
 ];
@@ -47,12 +48,28 @@ let compareChartState   = null;
 let compareVisibleMetrics = new Map(); // metric key → boolean
 let compareSortMetric   = 'fps_live';   // metric key to sort by
 let compareSortDir      = 'desc';       // 'asc' | 'desc'
+
+const FPS_METRIC_KEYS = new Set(['fps_live', 'fps_1pct', 'fps_01pct']);
+function defaultSortDir(metricKey) {
+    return FPS_METRIC_KEYS.has(metricKey) ? 'desc' : 'asc';
+}
 let compareExcludedIds  = new Set();    // session ids manually removed from compare
 
 // Global single-view metric visibility — shared across all sessions.
 // Initialised on first session load; toggling a metric updates this map
 // and applies the change to every session.
 const singleVisibility = new Map();
+
+// Single-view display overrides (null = auto-computed).
+// Persist across session switches. Timespan uses fractions so it remains
+// valid when the active session's duration changes; latency/FPS are
+// stored in their native units (ms / fps).
+let userTimeFracMin = null;   // 0..1
+let userTimeFracMax = null;
+let userLatMin      = null;   // ms
+let userLatMax      = null;
+let userFpsMin      = null;   // fps
+let userFpsMax      = null;
 
 // Worker queue — serialize DuckDB processing
 const workerQueue = [];
@@ -65,6 +82,17 @@ const sessionListEl   = document.getElementById("session-list");
 const singleViewEl    = document.getElementById("single-view");
 const compareViewEl   = document.getElementById("compare-view");
 const sidebarScrollEl = document.querySelector(".sidebar-scroll");
+
+// Chart controls DOM refs
+const singleControlsEl  = document.getElementById("single-controls");
+const timespanMinEl     = document.querySelector("#timespan-slider .range-min");
+const timespanMaxEl     = document.querySelector("#timespan-slider .range-max");
+const timespanFillEl    = document.querySelector("#timespan-slider .range-fill");
+const timespanReadoutEl = document.getElementById("timespan-readout");
+const latMinEl          = document.getElementById("lat-min");
+const latMaxEl          = document.getElementById("lat-max");
+const fpsMinEl          = document.getElementById("fps-min");
+const fpsMaxEl          = document.getElementById("fps-max");
 
 function setStatus() {} // no-op: status bar removed
 
@@ -98,6 +126,9 @@ function initWorker() {
             updateSessionPanel();
 
             if (data.sessionId === activeSessionId && viewMode === 'single') {
+                singleControlsEl.classList.add('visible');
+                syncControlsForSession();
+                applySingleViewOverrides();
                 render();
                 buildSidebar();
             }
@@ -133,23 +164,22 @@ document.getElementById("load-demo-btn").addEventListener("click", loadDemoData)
 
 
 const DEMO_PAIRS = [
-    { fv: 'demo/pr_480hz_480fps.csv',      app: 'demo/pr_480hz_480fps_data.csv' },
-    { fv: 'demo/pr_540hz_540fps.csv',      app: 'demo/pr_540hz_540fps_data.csv' },
-    { fv: 'demo/pr_600hz_600fps.csv',      app: 'demo/pr_600hz_600fps_data.csv' },
+    { fv: 'demo/bm_example.csv', app: 'demo/bm_exampl_data.csv',  isr: 'demo/bm_example_wpr.csv' },
+    { fv: 'demo/pr_example.csv', app: 'demo/pr_example_data.csv', isr: 'demo/pr_example_wpr.csv' },
 ];
 
 async function loadDemoData() {
     landingStatusEl.textContent = 'Loading sample data...';
     try {
         const pairs = [];
-        for (const { fv, app } of DEMO_PAIRS) {
-            const [fvResp, appResp] = await Promise.all([fetch(fv), fetch(app)]);
-            if (!fvResp.ok || !appResp.ok) throw new Error('Failed to fetch demo files');
-            const [fvBlob, appBlob] = await Promise.all([fvResp.blob(), appResp.blob()]);
+        for (const { fv, app, isr } of DEMO_PAIRS) {
+            const urls = [fv, app, isr].filter(Boolean);
+            const resps = await Promise.all(urls.map(u => fetch(u)));
+            if (resps.some(r => !r.ok)) throw new Error('Failed to fetch demo files');
+            const blobs = await Promise.all(resps.map(r => r.blob()));
             const ts = Date.now();
-            const fvFile  = new File([fvBlob],  fv.split('/').pop(),  { type: 'text/csv', lastModified: ts });
-            const appFile = new File([appBlob], app.split('/').pop(), { type: 'text/csv', lastModified: ts });
-            pairs.push([fvFile, appFile]);
+            const files = blobs.map((blob, i) => new File([blob], urls[i].split('/').pop(), { type: 'text/csv', lastModified: ts }));
+            pairs.push(files);
         }
 
         document.body.className = 'view-workspace';
@@ -164,20 +194,22 @@ async function loadDemoData() {
         for (const pair of pairs) {
             const id = nextSessionId++;
             const name = deriveSessionName(pair[0]);
+            const flatFiles = pair.filter(f => f != null);
+            const pairNames = [pair[0].name, pair[1].name, pair[2] ? pair[2].name : null];
             sessions.set(id, {
                 name,
                 chartState: null,
-                fileData: { flatFiles: [pair[0], pair[1]], pairs: [[pair[0].name, pair[1].name]] },
-                customMouseLatency: 1.0,
+                fileData: { flatFiles, pairs: [pairNames] },
+                customMouseLatency: 0.08,
                 usedCustomMouseLatency: false,
             });
 
             enqueueWorkerMessage({
                 type: 'LOAD_FILE_PAIRS',
                 sessionId: id,
-                flatFiles: [pair[0], pair[1]],
-                pairs: [[pair[0].name, pair[1].name]],
-                customMouseLatency: 1.0,
+                flatFiles,
+                pairs: [pairNames],
+                customMouseLatency: 0.08,
             });
         }
 
@@ -212,20 +244,22 @@ csvInput.addEventListener("change", async ({ target }) => {
     for (const pair of pairs) {
         const id = nextSessionId++;
         const name = deriveSessionName(pair[0]);
+        const flatFiles = pair.filter(f => f != null);
+        const pairNames = [pair[0].name, pair[1].name, pair[2] ? pair[2].name : null];
         sessions.set(id, {
             name,
             chartState: null,
-            fileData: { flatFiles: [pair[0], pair[1]], pairs: [[pair[0].name, pair[1].name]] },
-            customMouseLatency: 1.0,
+            fileData: { flatFiles, pairs: [pairNames] },
+            customMouseLatency: 0.08,
             usedCustomMouseLatency: false,
         });
 
         enqueueWorkerMessage({
             type: "LOAD_FILE_PAIRS",
             sessionId: id,
-            flatFiles: [pair[0], pair[1]],
-            pairs: [[pair[0].name, pair[1].name]],
-            customMouseLatency: 1.0,
+            flatFiles,
+            pairs: [pairNames],
+            customMouseLatency: 0.08,
         });
     }
 
@@ -311,23 +345,39 @@ async function pairFilesByTime(fileList) {
         const header = text.split('\n')[0];
         const type   = header.includes('TimeInSeconds')           ? 'frameview'
                      : header.includes('Elapsed time in seconds') ? 'app'
+                     : header.includes('DPC/ISR Enter Time')      ? 'isrdpc'
                      : null;
         return { file, type };
     }));
 
     const frameViewFiles = files.filter(f => f.type === 'frameview');
     const appFiles       = files.filter(f => f.type === 'app');
+    const isrDpcFiles    = files.filter(f => f.type === 'isrdpc');
     const usedAppFiles   = new Set();
+    const usedIsrFiles   = new Set();
     const pairs          = [];
 
+    // A pair must have FrameView + App; ISR/DPC is optional and attaches to
+    // whichever FrameView capture has the closest lastModified timestamp.
     for (const fv of frameViewFiles) {
-        let best = null, bestDiff = Infinity;
+        let bestApp = null, bestAppDiff = Infinity;
         for (const app of appFiles) {
             if (usedAppFiles.has(app)) continue;
             const diff = Math.abs(fv.file.lastModified - app.file.lastModified);
-            if (diff < bestDiff) { best = app; bestDiff = diff; }
+            if (diff < bestAppDiff) { bestApp = app; bestAppDiff = diff; }
         }
-        if (best) { pairs.push([fv.file, best.file]); usedAppFiles.add(best); }
+        if (!bestApp) continue;
+        usedAppFiles.add(bestApp);
+
+        let bestIsr = null, bestIsrDiff = Infinity;
+        for (const isr of isrDpcFiles) {
+            if (usedIsrFiles.has(isr)) continue;
+            const diff = Math.abs(fv.file.lastModified - isr.file.lastModified);
+            if (diff < bestIsrDiff) { bestIsr = isr; bestIsrDiff = diff; }
+        }
+        if (bestIsr) usedIsrFiles.add(bestIsr);
+
+        pairs.push([fv.file, bestApp.file, bestIsr ? bestIsr.file : null]);
     }
     return pairs;
 }
@@ -343,6 +393,8 @@ function setActiveSession(id) {
 
     const session = sessions.get(id);
     if (session.chartState) {
+        syncControlsForSession();
+        applySingleViewOverrides();
         render();
         buildSidebar();
     }
@@ -389,11 +441,21 @@ function removeSession(id) {
 function updateSessionPanel() {
     sessionListEl.innerHTML = '';
 
-    // Group label
+    if (!foldedGroups.has('Sessions')) foldedGroups.set('Sessions', false);
+    const sessionsFolded = foldedGroups.get('Sessions');
+
+    // Group label (foldable)
     const label = document.createElement('p');
-    label.className = 'group-label';
-    label.textContent = 'Sessions';
+    label.className = 'group-label foldable';
+    if (sessionsFolded) label.classList.add('folded');
+    label.innerHTML = `<span class="fold-arrow"></span>Sessions`;
+    label.addEventListener('click', () => {
+        foldedGroups.set('Sessions', !foldedGroups.get('Sessions'));
+        updateSessionPanel();
+    });
     sessionListEl.appendChild(label);
+
+    if (sessionsFolded) return;
 
     for (const [id, session] of sessions) {
         const row = document.createElement('div');
@@ -451,10 +513,12 @@ function updateViewVisibility() {
         singleViewEl.classList.remove('hidden');
         compareViewEl.classList.remove('visible');
         sidebarScrollEl.classList.remove('compare-mode');
+        singleControlsEl.classList.add('visible');
     } else {
         singleViewEl.classList.add('hidden');
         compareViewEl.classList.add('visible');
         sidebarScrollEl.classList.add('compare-mode');
+        singleControlsEl.classList.remove('visible');
     }
     updateSessionPanel();
 }
@@ -468,6 +532,8 @@ function getCheckedSessionIds() {
 function enterCompareMode() {
     viewMode = 'compare';
     compareExcludedIds.clear();
+    // Apply default sort direction for the current metric
+    compareSortDir = defaultSortDir(compareSortMetric);
     // Seed compare visibility from single-view selections so toggled metrics carry over.
     compareVisibleMetrics.clear();
     for (const [key, vis] of singleVisibility) compareVisibleMetrics.set(key, vis);
@@ -501,7 +567,7 @@ function exitCompareMode() {
     if (activeSessionId !== null) {
         const session = sessions.get(activeSessionId);
         if (session && session.chartState) {
-            recomputeYAxes(session);
+            updateSingleYAxes(session);
             render();
             buildSidebar();
         }
@@ -596,7 +662,7 @@ function syncCompareCanvasSizes() {
 // Latency stacking order for compare bars. frame_time is NOT in this list —
 // it is a sub-metric of game_latency and is rendered as an inset overlay
 // inside game_latency's segment rather than as an additive stack entry.
-const LAT_STACK_ORDER = ['peripheral_latency', 'game_latency', 'driver_latency', 'render_latency', 'scheduling_latency', 'display_latency'];
+const LAT_STACK_ORDER = ['peripheral_latency', 'isr_latency', 'dpc_latency', 'game_latency', 'driver_latency', 'render_latency', 'scheduling_latency', 'display_latency'];
 
 // FPS stacking order — ascending value (0.1% Low < 1% Low < Avg).
 // Each segment spans from the previous threshold to its own value, identical
@@ -885,26 +951,39 @@ function buildCompareSidebar(compareSessions, allMetricsByKey) {
         ['game_latency',         'Game Latency'],
         ['frame_time',           'Frame Time'],
         ['peripheral_latency',   'Peripheral Latency'],
+        ['isr_latency',          'ISR Latency'],
+        ['dpc_latency',          'DPC Latency'],
     ];
     // Append available HW metrics to sort options
     for (const [key, d] of metaMap) {
         if (d.group === 'GPU' || d.group === 'CPU') sortOptions.push([key, d.label]);
     }
 
+    if (!foldedGroups.has('Sort')) foldedGroups.set('Sort', false);
+    const sortFolded = foldedGroups.get('Sort');
     sortBlock.innerHTML = `
-        <p class="compare-sort-label">Sort</p>
-        <div class="compare-sort-row">
+        <p class="group-label foldable${sortFolded ? ' folded' : ''}" id="sort-fold"><span class="fold-arrow"></span>Sort</p>
+        <div class="compare-sort-row"${sortFolded ? ' style="display:none"' : ''}>
             <select id="compare-sort-metric">
                 ${sortOptions.map(([v, l]) => `<option value="${v}"${v === compareSortMetric ? ' selected' : ''}>${l}</option>`).join('')}
             </select>
             <button class="btn-sort" title="${compareSortDir === 'desc' ? 'Descending' : 'Ascending'}">${compareSortDir === 'desc' ? '\u25BC' : '\u25B2'}</button>
         </div>`;
 
+    sortBlock.querySelector('#sort-fold').addEventListener('click', () => {
+        foldedGroups.set('Sort', !foldedGroups.get('Sort'));
+        buildCompareView();
+    });
+
     const selEl = sortBlock.querySelector('select');
     const dirEl = sortBlock.querySelector('.btn-sort');
 
     selEl.addEventListener('change', () => {
         compareSortMetric = selEl.value;
+        // Auto-set sort direction: FPS descending, latency ascending
+        compareSortDir = defaultSortDir(compareSortMetric);
+        dirEl.textContent = compareSortDir === 'desc' ? '\u25BC' : '\u25B2';
+        dirEl.title       = compareSortDir === 'desc' ? 'Descending' : 'Ascending';
         buildCompareView();
     });
 
@@ -987,14 +1066,14 @@ function buildCompareMetricCard(metric, anyCustomMouse) {
                   : metric.unit === '%' || metric.unit === 'W' || metric.unit === '°C' ? metric.avg.toFixed(1)
                   : metric.avg.toFixed(2);
     const unitSuffix = metric.unit === 'ms' || metric.unit === 'fps' ? '' : ` ${metric.unit}`;
-    const currentCustom = [...sessions.values()].find(s => s.usedCustomMouseLatency)?.customMouseLatency ?? 1;
+    const currentCustom = [...sessions.values()].find(s => s.usedCustomMouseLatency)?.customMouseLatency ?? 0.08;
 
     card.innerHTML = `
         <label class="metric-header">
             <input type="checkbox" ${visible ? 'checked' : ''}${gameOff ? ' disabled' : ''}>
             <span class="metric-name">${metric.label}</span>
             ${showInlineInput
-                ? `<input type="number" class="input-mono metric-inline-input" value="${currentCustom}" min="0" max="100" step="0.5">`
+                ? `<input type="number" class="input-mono metric-inline-input" value="${currentCustom}" min="0" max="100" step="0.01">`
                 : `<span class="metric-unit">${avgText}${unitSuffix}</span>`}
         </label>`;
 
@@ -1469,8 +1548,9 @@ function buildChartState({ numRows, ts, metrics, minX, maxX, fpsStats, fvTs, fvF
         .map((m, i) => ({ ...m, color: HW_COLORS[i % HW_COLORS.length] }));
 
     // Upload GPU buffers
-    const metricEntries = [...chartMetrics, ...syntheticFps].map((metric, i) => {
-        const color     = COLOR_PALETTE[i % COLOR_PALETTE.length];
+    let fallbackIdx = 0;
+    const metricEntries = [...chartMetrics, ...syntheticFps].map((metric) => {
+        const color     = METRIC_COLORS[metric.key] ?? FALLBACK_PALETTE[fallbackIdx++ % FALLBACK_PALETTE.length];
         const [r, g, b] = hexToRgb(color);
 
         let gpuData, yMin, yMax;
@@ -1614,25 +1694,32 @@ function updateSingleYAxes(session) {
 
     const hasFpsVisible = fpsYMax > 0;
 
+    const dur = maxX - minX;
+    const xLo = userTimeFracMin != null ? minX + dur * userTimeFracMin : minX;
+    const xHi = userTimeFracMax != null ? minX + dur * userTimeFracMax : maxX;
+
     // Update GPU uniforms for every metric.
     for (const metric of metrics) {
         let yMin, yMax;
         if (metric.group === 'FPS') {
-            yMin = 0; yMax = fpsYMax || 50;
+            yMin = userFpsMin ?? 0;
+            yMax = userFpsMax ?? (fpsYMax || 50);
         } else if (metric.group === 'Latency') {
             const scale = hasFpsVisible ? 2 : 1;
-            yMin = 0; yMax = (latencyYMax || 1) * scale;
+            yMin = userLatMin ?? 0;
+            yMax = userLatMax ?? ((latencyYMax || 1) * scale);
         } else {
             const pad = (metric.max - metric.min) * 0.05 || 1;
             yMin = metric.min - pad; yMax = metric.max + pad;
         }
         const [r, g, b] = hexToRgb(metric.color);
-        device.queue.writeBuffer(metric.uniformBuffer, 0, new Float32Array([minX, maxX, yMin, yMax, r, g, b, 1.0]));
-        device.queue.writeBuffer(metric.areaUniformBuffer, 0, new Float32Array([minX, maxX, yMin, yMax, r, g, b, 0.14]));
+        device.queue.writeBuffer(metric.uniformBuffer, 0, new Float32Array([xLo, xHi, yMin, yMax, r, g, b, 1.0]));
+        device.queue.writeBuffer(metric.areaUniformBuffer, 0, new Float32Array([xLo, xHi, yMin, yMax, r, g, b, 0.14]));
     }
 
     session.chartState.latencyYMax = latencyYMax;
     session.chartState.fpsYMax = fpsYMax;
+    updateAxisPlaceholders();
 }
 
 // ── Legend ───────────────────────────────────────────────────────────────────
@@ -1671,6 +1758,153 @@ function drawLegend(ctx, items, x, cy, maxW) {
         cx += it.tw + itemGap;
     }
 }
+
+// ── Chart controls ──────────────────────────────────────────────────────────
+
+function syncTimespanSlider() {
+    const session = sessions.get(activeSessionId);
+    if (!session?.chartState) return;
+    const { minX, maxX } = session.chartState;
+    const duration = maxX - minX;
+    if (duration <= 0) return;
+
+    const loFrac = parseInt(timespanMinEl.value) / 1000;
+    const hiFrac = parseInt(timespanMaxEl.value) / 1000;
+    const tLo = minX + duration * loFrac;
+    const tHi = minX + duration * hiFrac;
+
+    timespanFillEl.style.left  = (loFrac * 100) + '%';
+    timespanFillEl.style.width = ((hiFrac - loFrac) * 100) + '%';
+
+    timespanReadoutEl.textContent = Math.round(tLo) + ' – ' + Math.round(tHi) + ' s';
+}
+
+// Sync control UI to the active session. Axis min/max overrides persist
+// across sessions; timespan always resets to the full range because each
+// session has its own duration.
+function syncControlsForSession() {
+    const session = sessions.get(activeSessionId);
+    if (!session?.chartState) return;
+
+    // Timespan always resets on session switch
+    userTimeFracMin = null;
+    userTimeFracMax = null;
+    timespanMinEl.value = 0;
+    timespanMaxEl.value = 1000;
+    syncTimespanSlider();
+
+    // Axis fields reflect persisted values; empty means auto.
+    latMinEl.value = userLatMin ?? '';
+    latMaxEl.value = userLatMax ?? '';
+    fpsMinEl.value = userFpsMin ?? '';
+    fpsMaxEl.value = userFpsMax ?? '';
+    updateAxisPlaceholders();
+}
+
+function updateAxisPlaceholders() {
+    const session = sessions.get(activeSessionId);
+    if (!session?.chartState) return;
+    const { latencyYMax, fpsYMax, metrics } = session.chartState;
+    const hasFps = metrics.some(m => m.group === 'FPS' && m.visible);
+    const latAxisMax = latencyYMax * (hasFps ? 2 : 1);
+    latMinEl.placeholder = '0';
+    latMaxEl.placeholder = latAxisMax ? Math.round(latAxisMax) : '–';
+    fpsMinEl.placeholder = '0';
+    fpsMaxEl.placeholder = fpsYMax ? Math.round(fpsYMax) : '–';
+}
+
+function applyTimespanFromSlider() {
+    const session = sessions.get(activeSessionId);
+    if (!session?.chartState) return;
+
+    const loFrac = parseInt(timespanMinEl.value) / 1000;
+    const hiFrac = parseInt(timespanMaxEl.value) / 1000;
+
+    if (loFrac <= 0 && hiFrac >= 1) {
+        userTimeFracMin = null; userTimeFracMax = null;
+    } else {
+        userTimeFracMin = loFrac;
+        userTimeFracMax = hiFrac;
+    }
+    applySingleViewOverrides();
+    render();
+}
+
+function applyAxisFields() {
+    const latMin = latMinEl.value !== '' ? parseFloat(latMinEl.value) : null;
+    const latMax = latMaxEl.value !== '' ? parseFloat(latMaxEl.value) : null;
+    const fMin   = fpsMinEl.value !== '' ? parseFloat(fpsMinEl.value) : null;
+    const fMax   = fpsMaxEl.value !== '' ? parseFloat(fpsMaxEl.value) : null;
+
+    userLatMin = latMin !== null && !isNaN(latMin) ? latMin : null;
+    userLatMax = latMax !== null && !isNaN(latMax) ? latMax : null;
+    userFpsMin = fMin   !== null && !isNaN(fMin)   ? fMin   : null;
+    userFpsMax = fMax   !== null && !isNaN(fMax)    ? fMax   : null;
+
+    applySingleViewOverrides();
+    render();
+}
+
+function applySingleViewOverrides() {
+    const session = sessions.get(activeSessionId);
+    if (!session?.chartState) return;
+    const { device } = gpuState;
+    const { metrics, minX, maxX, latencyYMax, fpsYMax } = session.chartState;
+    const hasFps = metrics.some(m => m.group === 'FPS' && m.visible);
+
+    const dur = maxX - minX;
+    const xLo = userTimeFracMin != null ? minX + dur * userTimeFracMin : minX;
+    const xHi = userTimeFracMax != null ? minX + dur * userTimeFracMax : maxX;
+
+    for (const metric of metrics) {
+        let yMin, yMax;
+        if (metric.group === 'FPS') {
+            yMin = userFpsMin ?? 0;
+            yMax = userFpsMax ?? (fpsYMax || 50);
+        } else if (metric.group === 'Latency') {
+            const autoLatMax = (latencyYMax || 1) * (hasFps ? 2 : 1);
+            yMin = userLatMin ?? 0;
+            yMax = userLatMax ?? autoLatMax;
+        } else {
+            const pad = (metric.max - metric.min) * 0.05 || 1;
+            yMin = metric.min - pad; yMax = metric.max + pad;
+        }
+        const [r, g, b] = hexToRgb(metric.color);
+        device.queue.writeBuffer(metric.uniformBuffer, 0, new Float32Array([xLo, xHi, yMin, yMax, r, g, b, 1.0]));
+        device.queue.writeBuffer(metric.areaUniformBuffer, 0, new Float32Array([xLo, xHi, yMin, yMax, r, g, b, 0.14]));
+    }
+}
+
+// Timespan slider events
+timespanMinEl.addEventListener('input', () => {
+    if (parseInt(timespanMinEl.value) > parseInt(timespanMaxEl.value)) {
+        timespanMinEl.value = timespanMaxEl.value;
+    }
+    syncTimespanSlider();
+    applyTimespanFromSlider();
+});
+
+timespanMaxEl.addEventListener('input', () => {
+    if (parseInt(timespanMaxEl.value) < parseInt(timespanMinEl.value)) {
+        timespanMaxEl.value = timespanMinEl.value;
+    }
+    syncTimespanSlider();
+    applyTimespanFromSlider();
+});
+
+// Axis field events
+for (const el of [latMinEl, latMaxEl, fpsMinEl, fpsMaxEl]) {
+    el.addEventListener('change', applyAxisFields);
+}
+
+// Display group fold
+const displayFoldEl = document.getElementById('display-fold');
+displayFoldEl.addEventListener('click', () => {
+    const folded = !foldedGroups.get('Display');
+    foldedGroups.set('Display', folded);
+    displayFoldEl.classList.toggle('folded', folded);
+    singleControlsEl.classList.toggle('folded', folded);
+});
 
 // ── Render ───────────────────────────────────────────────────────────────────
 
@@ -1764,28 +1998,34 @@ function render() {
 
     // Both axes span the full chart height (0 at bottom, max at top).
     // Latency uses an extended max so its data stays in the bottom half when FPS is visible.
-    function drawYTicks(axisMax, side, format) {
-        if (!axisMax) return;
+    function drawYTicks(axisMin, axisMax, side, format) {
+        if (axisMax == null || axisMax <= axisMin) return;
         ctx2d.textBaseline = 'middle';
         ctx2d.textAlign    = side === 'left' ? 'right' : 'left';
         const tx = side === 'left' ? r.x - 16 : r.x + r.w + 16;
         for (let i = 0; i <= 5; i++) {
-            const value = (axisMax / 5) * i;
+            const value = axisMin + (axisMax - axisMin) * (i / 5);
             const ty    = r.y + r.h * (1 - i / 5);
             ctx2d.fillText(format(value), tx, ty);
         }
     }
 
-    const latencyAxisMax = latencyYMax * (hasFps ? 2 : 1);
-    const latencyFmt = latencyAxisMax < 4 ? v => v.toFixed(1) : v => Math.round(v).toString();
-    if (hasFps)     drawYTicks(fpsYMax,        'left',  v => Math.round(v).toString());
-    if (hasLatency) drawYTicks(latencyAxisMax,  'right', latencyFmt);
+    const autoLatAxisMax = latencyYMax * (hasFps ? 2 : 1);
+    const effLatMin = userLatMin ?? 0;
+    const effLatMax = userLatMax ?? autoLatAxisMax;
+    const effFpsMin = userFpsMin ?? 0;
+    const effFpsMax = userFpsMax ?? fpsYMax;
+    const latencyFmt = effLatMax < 4 ? v => v.toFixed(1) : v => Math.round(v).toString();
+    if (hasFps)     drawYTicks(effFpsMin, effFpsMax, 'left',  v => Math.round(v).toString());
+    if (hasLatency) drawYTicks(effLatMin, effLatMax, 'right', latencyFmt);
 
-    // X-axis tick labels — 5 evenly spaced including both endpoints
-    // (far-left = minX, far-right = maxX), rounded to whole seconds.
+    // X-axis tick labels — 5 evenly spaced including both endpoints.
+    const dur     = maxX - minX;
+    const effXMin = userTimeFracMin != null ? minX + dur * userTimeFracMin : minX;
+    const effXMax = userTimeFracMax != null ? minX + dur * userTimeFracMax : maxX;
     ctx2d.textBaseline = 'top';
     for (let i = 0; i <= 4; i++) {
-        const t  = minX + (maxX - minX) * (i / 4);
+        const t  = effXMin + (effXMax - effXMin) * (i / 4);
         const px = r.x + r.w * (i / 4);
         // Anchor endpoints to their edge so they don't overflow the plot.
         ctx2d.textAlign = i === 0 ? 'left' : i === 4 ? 'right' : 'center';
@@ -1945,7 +2185,7 @@ function buildMetricCard(metric) {
             <input type="checkbox" ${metric.visible ? "checked" : ""}${isDisabled ? " disabled" : ""}>
             <span class="metric-name">${metric.label}</span>
             ${showInlineInput
-                ? `<input type="number" class="input-mono metric-inline-input" value="${session.customMouseLatency}" min="0" max="100" step="0.5">`
+                ? `<input type="number" class="input-mono metric-inline-input" value="${session.customMouseLatency}" min="0" max="100" step="0.01">`
                 : `<span class="metric-unit">${avgText}${unitSuffix}</span>`}
         </label>`;
 

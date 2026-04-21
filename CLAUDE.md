@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Latency View is a web app that visualizes PC latency data from the Reflex Latency Analyzer. Users record a benchmark with both FrameView and the NVIDIA App, then select the FrameView and NVIDIA App Latency CSV files. The app pairs files by `lastModified` timestamp, joins them via DuckDB-Wasm SQL (ASOF join after normalizing both sides to start at t=0), and renders stacked line charts on a WebGPU canvas.
+Latency View is a web app that visualizes PC latency data from the Reflex Latency Analyzer. Users record a benchmark with FrameView and the NVIDIA App (required) and, optionally, a third ISR/DPC trace CSV. The app pairs files by `lastModified` timestamp, joins them via DuckDB-Wasm SQL (ASOF join after normalizing every side to start at t=0), and renders stacked line charts on a WebGPU canvas.
 
 Multiple pairs can be loaded as independent **sessions**. The sidebar lists sessions; clicking one activates its single-view chart. **Compare mode** renders an N-row stacked bar chart across checked sessions — one stacked latency bar and one stacked FPS bar per session — with the best session's end-cap highlighted in the accent color.
 
@@ -41,8 +41,10 @@ Multiple pairs can be loaded as independent **sessions**. The sidebar lists sess
 | ├── Scheduling Latency | `Frameview.[MsUntilDisplayed]` - `Frameview.[MsRenderPresentLatency]` |
 | ├── Render Latency | `Frameview.[MsRenderPresentLatency]` |
 | ├── Driver Latency | `Frameview.[MsInPresentAPI]` |
-| ├── Game Latency | `Frameview.[MsPCLatency]` - `Frameview.[MsUntilDisplayed]` - `Frameview.[MsInPresentAPI]` |
+| ├── Game Latency | `Frameview.[MsPCLatency]` - `Frameview.[MsUntilDisplayed]` - `Frameview.[MsInPresentAPI]` - ISR Latency - DPC Latency |
 | │ └── Frame Time | `Frameview.[MsBetweenPresents]` |
+| ├── ISR Latency | `SUM(IsrDpc.[Duration (Fragmented) (ms)] WHERE Type = 'Interrupt')` per app frame |
+| ├── DPC Latency | `SUM(IsrDpc.[Duration (Fragmented) (ms)] WHERE Type = 'DPC')` per app frame |
 | └── Peripheral Latency | `NvidiaApp.[Mouse Latency(MSec)]` |
 | **FPS** | `1000 / Frameview.[MsBetweenPresents]` |
 | ├── Avg FPS | `1000 / AVG(Frameview.[MsBetweenPresents])` |
@@ -53,11 +55,13 @@ FPS percentiles are computed on raw FrameView rows (not the ASOF-joined output) 
 
 Fallback Logic if Peripheral Latency is invalid (<0ms) or the column is absent:
 
-1. Set default Peripheral Latency to 1ms.
+1. Set default Peripheral Latency to 0.08ms.
 2. Show a sidebar input so the user can manually adjust this value and re-run the pipeline.
 3. Recalculate System Latency: `NvidiaApp.[PC + DisplayLatency(MSec)] + [Custom Peripheral Latency]`.
 
 The fallback is triggered by a sentinel value (`-0.001`) substituted in the SQL when the row's mouse latency is missing; the worker reports `usedCustomMouseLatency = true` when any sentinel was present.
+
+ISR and DPC durations come from an optional ISR/DPC CSV (`DPC/ISR Enter Time (s),Type,Duration (Fragmented) (ms)`). Values in that file use comma decimals and are quoted, so the SQL reads them as VARCHAR and `REPLACE(',', '.')` before casting. Every event is bound to the next app row at or after its (normalized) enter time via ASOF JOIN, then summed per row and split by `Type` into `isr_latency` and `dpc_latency`. When ISR/DPC data is present, Game Latency additionally subtracts both so the stacked segments sum cleanly to PC Latency. In the stacked latency chart these sit immediately above Peripheral Latency (bottom-up order: `peripheral → isr → dpc → game → driver → render → scheduling → display`).
 
 ---
 

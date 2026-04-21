@@ -65,11 +65,52 @@
 
                     <div id="session-list"></div>
 
+                    <div id="chart-controls">
+                        <!-- Single-view controls -->
+                        <div id="single-controls" class="controls-block">
+                            <p class="group-label foldable" id="display-fold"><span class="fold-arrow"></span>Display</p>
+
+                            <div class="control-row">
+                                <span class="control-label">Timespan</span>
+                                <div class="range-slider" id="timespan-slider">
+                                    <div class="range-track">
+                                        <div class="range-fill"></div>
+                                    </div>
+                                    <input type="range" class="range-thumb range-min" min="0" max="1000" value="0" step="1">
+                                    <input type="range" class="range-thumb range-max" min="0" max="1000" value="1000" step="1">
+                                </div>
+                                <span class="range-readout" id="timespan-readout">0 – 0 s</span>
+                            </div>
+
+                            <div class="control-row">
+                                <span class="control-label">Latency</span>
+                                <div class="axis-fields">
+                                    <input type="number" id="lat-min" class="input-mono axis-input" placeholder="min" step="1" min="0">
+                                    <span class="axis-sep">–</span>
+                                    <input type="number" id="lat-max" class="input-mono axis-input" placeholder="max" step="1" min="0">
+                                    <span class="input-suffix">ms</span>
+                                </div>
+                            </div>
+
+                            <div class="control-row">
+                                <span class="control-label">FPS</span>
+                                <div class="axis-fields">
+                                    <input type="number" id="fps-min" class="input-mono axis-input" placeholder="min" step="1" min="0">
+                                    <span class="axis-sep">–</span>
+                                    <input type="number" id="fps-max" class="input-mono axis-input" placeholder="max" step="1" min="0">
+                                    <span class="input-suffix">fps</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Compare-view controls are built dynamically -->
+                    </div>
+
                     <div id="mouse-latency-config" style="display:none">
                         <div class="config-block">
                             <p class="config-note">Mouse not detected &mdash; using estimated latency</p>
                             <div class="config-row">
-                                <input type="number" id="mouse-latency-input" class="input-mono" value="1" min="0" max="100" step="0.5">
+                                <input type="number" id="mouse-latency-input" class="input-mono" value="0.08" min="0" max="100" step="0.01">
                                 <span class="input-suffix">ms</span>
                                 <button id="apply-mouse-latency" class="btn-tool">Apply</button>
                             </div>

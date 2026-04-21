@@ -1,5 +1,6 @@
 const FRAMEVIEW_TIMESTAMP_COLUMN = "TimeInSeconds";
 const APP_TIMESTAMP_COLUMN       = "Timestamp (Elapsed time in seconds)";
+const ISRDPC_TIMESTAMP_COLUMN    = "DPC/ISR Enter Time (s)";
 const CSV_READ_OPTIONS           = "auto_detect=True, header=True, delim=',', null_padding=True, ignore_errors=True";
 const MOUSE_LATENCY_SENTINEL     = -0.001;
 
@@ -11,6 +12,8 @@ const METRICS = [
     { key: 'driver_latency',     label: 'Driver Latency',     unit: 'ms',  group: 'Latency',      defaultActive: false },
     { key: 'game_latency',       label: 'Game Latency',       unit: 'ms',  group: 'Latency',      defaultActive: false },
     { key: 'frame_time',         label: 'Frame Time',         unit: 'ms',  group: 'Latency',      defaultActive: false },
+    { key: 'dpc_latency',        label: 'DPC Latency',        unit: 'ms',  group: 'Latency',      defaultActive: false },
+    { key: 'isr_latency',        label: 'ISR Latency',        unit: 'ms',  group: 'Latency',      defaultActive: false },
     { key: 'peripheral_latency', label: 'Peripheral Latency', unit: 'ms',  group: 'Latency',      defaultActive: false },
     { key: 'gpu_util',           label: 'GPU Util',           unit: '%',   group: 'GPU',          defaultActive: false },
     { key: 'gpu_clk',            label: 'GPU Clk',            unit: 'MHz', group: 'GPU',          defaultActive: false },
@@ -23,20 +26,24 @@ const METRICS = [
     { key: 'cpu_power',          label: 'CPU Power',          unit: 'W',   group: 'CPU',          defaultActive: false },
 ];
 
-export async function processDataPipeline(conn, pairs, customMouseLatency = 1.0) {
-    const [fileA, fileB] = pairs[0];
+export async function processDataPipeline(conn, pairs, customMouseLatency = 0.08) {
+    const filesInPair = pairs[0].filter(f => f != null);
 
-    const [schemaA, schemaB] = await Promise.all([
-        conn.query(`DESCRIBE SELECT * FROM read_csv('${fileA}', ${CSV_READ_OPTIONS}) LIMIT 1`),
-        conn.query(`DESCRIBE SELECT * FROM read_csv('${fileB}', ${CSV_READ_OPTIONS}) LIMIT 1`),
-    ]);
-    const columnsA = new Set(schemaA.toArray().map(r => r.column_name));
-    const columnsB = new Set(schemaB.toArray().map(r => r.column_name));
+    const schemas = await Promise.all(filesInPair.map(f =>
+        conn.query(`DESCRIBE SELECT * FROM read_csv('${f}', ${CSV_READ_OPTIONS}) LIMIT 1`)
+    ));
 
-    const isFileAFrameView               = columnsA.has(FRAMEVIEW_TIMESTAMP_COLUMN);
-    const frameViewFile                  = isFileAFrameView ? fileA : fileB;
-    const appFile                        = isFileAFrameView ? fileB : fileA;
-    const [frameViewColumns, appColumns] = isFileAFrameView ? [columnsA, columnsB] : [columnsB, columnsA];
+    let frameViewFile = null, appFile = null, isrDpcFile = null;
+    let frameViewColumns = null, appColumns = null;
+    filesInPair.forEach((fname, i) => {
+        const cols = new Set(schemas[i].toArray().map(r => r.column_name));
+        if (cols.has(FRAMEVIEW_TIMESTAMP_COLUMN))      { frameViewFile = fname; frameViewColumns = cols; }
+        else if (cols.has(ISRDPC_TIMESTAMP_COLUMN))    { isrDpcFile    = fname; }
+        else                                           { appFile       = fname; appColumns       = cols; }
+    });
+
+    if (!frameViewFile) throw new Error("Could not identify FrameView CSV.");
+    if (!appFile)       throw new Error("Could not identify NVIDIA App CSV.");
 
     const requiredApp = ['PC + DisplayLatency(MSec)', 'System Latency (MSec)'];
     const requiredFV  = ['MsBetweenPresents', 'MsUntilDisplayed', 'MsRenderPresentLatency', 'MsPCLatency'];
@@ -69,10 +76,11 @@ export async function processDataPipeline(conn, pairs, customMouseLatency = 1.0)
         ? `TRY_CAST("MsInPresentAPI" AS FLOAT)`
         : `CAST(NULL AS FLOAT)`;
 
-    // Game latency = PC latency - scheduling component - driver component
+    // Game latency = PC latency - scheduling component - driver component - ISR/DPC (when present)
+    const isrDpcSubtract = isrDpcFile ? ` - COALESCE(isr_latency, 0) - COALESCE(dpc_latency, 0)` : ``;
     const gameLatencyExpr = hasInPresentAPI
-        ? `pc_latency_fv - until_displayed - in_present_api`
-        : `pc_latency_fv - until_displayed`;
+        ? `pc_latency_fv - until_displayed - in_present_api${isrDpcSubtract}`
+        : `pc_latency_fv - until_displayed${isrDpcSubtract}`;
 
     const driverLatencyExpr = hasInPresentAPI ? `in_present_api` : `CAST(NULL AS FLOAT)`;
 
@@ -107,14 +115,61 @@ export async function processDataPipeline(conn, pairs, customMouseLatency = 1.0)
         if (hasCpuName) cpuName = nameResult.getChild('CPU')?.get(0) ?? null;
     }
 
+    // ISR/DPC typed table — values in the source CSV use comma decimal separators
+    // and are quoted, so we read as VARCHAR via auto_detect and REPLACE(',', '.')
+    // before casting. Pair-level aggregates (per-frame ISR/DPC latency) are
+    // computed later inside the main CTE pipeline.
+    if (isrDpcFile) {
+        await conn.query(`
+            CREATE OR REPLACE TEMP TABLE isr_typed AS
+            SELECT
+                TRY_CAST(REPLACE(CAST("${ISRDPC_TIMESTAMP_COLUMN}"  AS VARCHAR), ',', '.') AS DOUBLE) AS ts,
+                "Type"                                                                                AS type,
+                TRY_CAST(REPLACE(CAST("Duration (Fragmented) (ms)" AS VARCHAR), ',', '.') AS DOUBLE) AS duration
+            FROM read_csv('${isrDpcFile}', ${CSV_READ_OPTIONS})
+        `);
+    }
+
     // Only include metrics whose columns are present in the SQL output.
-    // Hardware metrics are conditional on FrameView schema; latency metrics are always present.
+    // Hardware metrics are conditional on FrameView schema; ISR/DPC metrics
+    // are conditional on the ISR/DPC CSV being present.
     const presentHWKeys = new Set(presentHW.map(h => h.key));
-    const activeMetrics = METRICS.filter(m => !HW_COLUMNS.some(h => h.key === m.key) || presentHWKeys.has(m.key));
+    const activeMetrics = METRICS.filter(m => {
+        if (HW_COLUMNS.some(h => h.key === m.key))   return presentHWKeys.has(m.key);
+        if (m.key === 'isr_latency' || m.key === 'dpc_latency') return !!isrDpcFile;
+        return true;
+    });
 
     const windowAggregates = activeMetrics.map(m =>
         `MIN(${m.key}) OVER () as ${m.key}_min, MAX(${m.key}) OVER () as ${m.key}_max, AVG(${m.key}) OVER () as ${m.key}_avg, COUNT(${m.key}) OVER () as ${m.key}_count`
     ).join(', ');
+
+    // ISR/DPC CTEs: normalize to its own t=0 like the other two sides, bin every
+    // ISR/DPC event to the next app row at or after it, then sum durations per
+    // app row — split by type so Interrupts → isr_latency, DPCs → dpc_latency.
+    const isrCTEs = isrDpcFile ? `,
+        isr_norm AS (
+            SELECT ts - MIN(ts) OVER () AS norm_ts, type, duration
+            FROM isr_typed
+            WHERE ts IS NOT NULL AND duration IS NOT NULL
+        ),
+        isr_binned AS (
+            SELECT app.norm_ts AS app_norm_ts, isr.type, isr.duration
+            FROM isr_norm isr
+            ASOF JOIN app_norm app ON isr.norm_ts <= app.norm_ts
+        ),
+        isr_agg AS (
+            SELECT
+                app_norm_ts,
+                SUM(CASE WHEN type = 'Interrupt' THEN duration ELSE 0 END) AS isr_latency,
+                SUM(CASE WHEN type = 'DPC'       THEN duration ELSE 0 END) AS dpc_latency
+            FROM isr_binned
+            GROUP BY app_norm_ts
+        )` : '';
+
+    const isrJoinedCols = isrDpcFile ? ',\n                   isr_agg.isr_latency, isr_agg.dpc_latency' : '';
+    const isrJoin       = isrDpcFile ? 'LEFT JOIN isr_agg ON app.norm_ts = isr_agg.app_norm_ts' : '';
+    const isrComputed   = isrDpcFile ? 'COALESCE(isr_latency, 0) as isr_latency,\n                COALESCE(dpc_latency, 0) as dpc_latency,\n                ' : '';
 
     const result = await conn.query(`
         WITH app_raw AS (
@@ -128,16 +183,17 @@ export async function processDataPipeline(conn, pairs, customMouseLatency = 1.0)
         ),
         fv_raw AS ( SELECT * FROM fv_typed WHERE ts IS NOT NULL ),
         app_norm AS ( SELECT *, ts - MIN(ts) OVER () AS norm_ts FROM app_raw ),
-        fv_norm  AS ( SELECT *, ts - MIN(ts) OVER () AS norm_ts FROM fv_raw  ),
+        fv_norm  AS ( SELECT *, ts - MIN(ts) OVER () AS norm_ts FROM fv_raw  )${isrCTEs},
         -- ASOF JOIN replaces a LATERAL ORDER BY ABS(...) LIMIT 1 that materialized
         -- the full N×M cross-product and OOM'd on larger captures. Both sides are
         -- normalized to start at norm_ts=0, so the first app row always finds a
         -- match and subsequent gaps are at most one frame.
         joined AS (
             SELECT app.ts, app.pc_display_latency, app.system_latency_raw, app.mouse_latency_raw,
-                   fv.frame_time, fv.until_displayed, fv.render_latency, fv.pc_latency_fv, fv.in_present_api${presentHW.length ? ',\n                   ' + presentHW.map(h => `fv.${h.key}`).join(', ') : ''}
+                   fv.frame_time, fv.until_displayed, fv.render_latency, fv.pc_latency_fv, fv.in_present_api${presentHW.length ? ',\n                   ' + presentHW.map(h => `fv.${h.key}`).join(', ') : ''}${isrJoinedCols}
             FROM app_norm app
             ASOF JOIN fv_norm fv ON app.norm_ts >= fv.norm_ts
+            ${isrJoin}
         ),
         computed AS (
             SELECT
@@ -157,7 +213,7 @@ export async function processDataPipeline(conn, pairs, customMouseLatency = 1.0)
                 GREATEST(0.0, render_latency)                                as render_latency,
                 GREATEST(0.0, ${driverLatencyExpr})                          as driver_latency,
                 GREATEST(0.0, ${gameLatencyExpr})                            as game_latency,
-                frame_time${presentHW.length ? ',\n                ' + presentHW.map(h => h.key).join(', ') : ''}
+                ${isrComputed}frame_time${presentHW.length ? ',\n                ' + presentHW.map(h => h.key).join(', ') : ''}
             FROM joined
         )
         SELECT

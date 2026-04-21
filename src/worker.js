@@ -59,7 +59,7 @@ self.onmessage = async ({ data }) => {
         return;
     }
 
-    const { flatFiles, pairs, customMouseLatency = 1.0, sessionId } = data;
+    const { flatFiles, pairs, customMouseLatency = 0.08, sessionId } = data;
     try {
         for (let i = 0; i < flatFiles.length; i++)
             await db.registerFileHandle(flatFiles[i].name, flatFiles[i], duckdb.DuckDBDataProtocol.BROWSER_FILEREADER, true);
